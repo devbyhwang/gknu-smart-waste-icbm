@@ -36,6 +36,8 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
+Raspberry Pi 설치 및 용량 문제 해결 가이드: [docs/rpi-setup.md](docs/rpi-setup.md)
+
 ## Run
 
 ```bash

@@ -1,0 +1,137 @@
+# Raspberry Pi 설치 및 용량 문제 해결 가이드
+
+이 문서는 `EcoSort-AIoT`를 라즈베리파이에서 설치할 때 발생하는 용량 부족(`No space left on device`) 문제를 포함해, 설치부터 진단/복구까지 한 번에 정리한 가이드입니다.
+
+## 1) 대상 환경 및 전제
+
+- OS: Raspberry Pi OS (권장: Bookworm 계열)
+- 저장소: 32GB SD 카드 기준
+- 예시 프로젝트 경로: `~/nashville`
+- Python 가상환경(`venv`) 사용 기준
+
+32GB SD 카드라도 실제 사용 가능 용량은 시스템 파티션/로그/캐시 때문에 더 작게 보일 수 있습니다. 설치 전 여유공간을 먼저 확인하세요.
+
+## 2) 기본 설치 순서 (저장공간 절약형)
+
+`pytest`는 런타임에 불필요하므로 제외하고 설치합니다.
+
+```bash
+cd ~/nashville
+
+# 가상환경 생성/활성화
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+
+# 런타임 전용 requirements 생성 (pytest 제외)
+grep -v '^pytest' requirements.txt > requirements.rpi.txt
+
+# 캐시 없이 설치 + piwheels 사용
+python -m pip install --no-cache-dir \
+  -r requirements.rpi.txt \
+  --extra-index-url https://www.piwheels.org/simple
+```
+
+실행:
+
+```bash
+python -m src.main
+```
+
+## 3) 용량 부족 진단 명령
+
+어디가 찼는지 먼저 확인합니다.
+
+```bash
+# 파일시스템/파티션 상태
+df -h
+lsblk
+
+# 루트(/)와 /var의 대용량 디렉터리 탐색
+sudo du -xhd1 / | sort -h
+sudo du -xhd1 /var | sort -h
+
+# 사용자 영역 캐시/프로젝트 용량
+du -sh ~/.cache ~/.local ~/nashville 2>/dev/null
+```
+
+## 4) 즉시 정리 명령
+
+아래 명령은 일반적으로 안전한 정리 절차입니다.
+
+```bash
+sudo apt clean
+sudo apt autoremove --purge -y
+sudo journalctl --vacuum-size=50M
+
+rm -rf ~/.cache/pip
+rm -rf ~/.cache/ultralytics
+```
+
+필요 시(개인 환경 기준) 추가 점검:
+
+```bash
+sudo du -xhd1 /var/log | sort -h
+```
+
+## 5) 루트 파티션 확장 (가장 흔한 원인)
+
+SD 카드가 32GB여도 루트 파티션이 확장되지 않으면 실제로는 몇 GB만 쓸 수 있습니다.
+
+```bash
+sudo raspi-config
+```
+
+- `Advanced Options` -> `Expand Filesystem`
+- 재부팅 후 확인:
+
+```bash
+df -h
+```
+
+`/` 용량이 SD 카드 크기(대략 29GB 전후)로 보이는지 확인하세요.
+
+## 6) 그래도 실패할 때 대안
+
+### A. OpenCV를 apt 패키지로 전환
+
+pip `opencv-python` 대신 시스템 패키지를 사용하면 빌드/설치 부담을 줄일 수 있습니다.
+
+```bash
+sudo apt update
+sudo apt install -y python3-opencv
+
+cd ~/nashville
+python3 -m venv .venv --system-site-packages
+source .venv/bin/activate
+
+# opencv-python/pytest 제외 후 설치
+grep -Ev '^(opencv-python|pytest)' requirements.txt > requirements.rpi.txt
+python -m pip install --no-cache-dir \
+  -r requirements.rpi.txt \
+  --extra-index-url https://www.piwheels.org/simple
+```
+
+### B. Raspberry Pi OS Lite 사용
+
+Desktop 버전보다 Lite가 저장공간 사용량이 작아 설치 안정성이 높습니다.
+
+### C. 외장 스토리지 사용
+
+프로젝트/가상환경/모델 파일을 USB SSD로 이동해 SD 카드 압박을 줄입니다.
+
+## 7) 최소 여유공간 가이드 및 체크리스트
+
+- 권장 여유공간: 최소 6~8GB
+- 설치 직전 점검:
+  - `df -h`에서 `/` 사용률이 80% 미만인지 확인
+  - `raspi-config`로 루트 파티션 확장 여부 확인
+  - `~/.cache/pip`, `~/.cache/ultralytics` 정리 여부 확인
+  - `requirements.rpi.txt`로 런타임 의존성만 설치하는지 확인
+
+자주 발생하는 원인:
+
+- 루트 파티션 미확장
+- pip 캐시 누적
+- Desktop OS 기본 패키지로 인한 여유공간 부족
+- `opencv-python`/`torch` 설치 중 임시 파일 누적
