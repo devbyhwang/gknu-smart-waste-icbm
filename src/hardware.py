@@ -1,5 +1,7 @@
 from enum import Enum
 
+from .mobile.ble_notifier import BleNotifier, MockBleNotifier
+
 
 class SoundType(Enum):
     SUCCESS = "success"
@@ -85,21 +87,30 @@ class SensorC:
 
 
 class BluetoothC:
-    def __init__(self):
+    def __init__(self, notifier: BleNotifier | None = None):
         self.isConnected = False
+        self.notifier = notifier or MockBleNotifier()
 
     def connect(self):
         self.isConnected = True
-        print("[Bluetooth] 연결 완료")
         return self.isConnected
 
-    def sendAlert(self, message):
+    def _notify_event(self, event, message):
         if not self.isConnected:
             self.connect()
-        print(f"[Bluetooth] 스마트폰 앱으로 알림 전송: {message}")
+        return self.notifier.notify(event, message)
+
+    def sendAlert(self, message):
+        return self._notify_event("BIN_FULL", message)
+
+    def sendExceptionAlert(self, message):
+        return self._notify_event("OUTPUT_EXCEPTION", message)
 
     def send_alert(self, msg):
-        self.sendAlert(msg)
+        return self.sendAlert(msg)
+
+    def send_exception_alert(self, msg):
+        return self.sendExceptionAlert(msg)
 
 
 class MobileApp:
