@@ -44,6 +44,18 @@ Raspberry Pi 설치 및 용량 문제 해결 가이드: [docs/rpi-setup.md](docs
 python -m src.main
 ```
 
+테스트 모드(카메라 화면 + YOLO 인식 오버레이):
+
+```bash
+python -m src.main --test-mode
+```
+
+테스트 모드에서 현재 핸들러 동작까지 함께 확인:
+
+```bash
+python -m src.main --test-mode --test-dispatch
+```
+
 ## Test
 
 ```bash
