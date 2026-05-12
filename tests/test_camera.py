@@ -91,6 +91,21 @@ def test_camera_start_process_command_and_get_frame_success(monkeypatch):
     assert "--codec" in cmd and "mjpeg" in cmd
 
 
+def test_camera_get_frame_returns_latest_jpeg(monkeypatch):
+    old_jpg = b"\xff\xd8" + (b"o" * 120) + b"\xff\xd9"
+    new_jpg = b"\xff\xd8" + (b"n" * 120) + b"\xff\xd9"
+    chunks = [old_jpg + new_jpg]
+    camera_module, _proc, _popen_calls, decoded = _load_camera_module(
+        monkeypatch, chunks=chunks
+    )
+
+    camera = camera_module.CameraManager()
+    frame = camera.get_frame()
+
+    assert frame == "decoded-frame"
+    assert decoded[-1] == new_jpg
+
+
 def test_camera_get_frame_none_when_stream_ends(monkeypatch):
     camera_module, _proc, _popen_calls, _decoded = _load_camera_module(
         monkeypatch, chunks=[b""]
