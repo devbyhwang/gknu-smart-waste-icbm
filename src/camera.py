@@ -72,24 +72,37 @@ class CameraManager:
 
             self.raw_bytes += chunk
 
-            start = self.raw_bytes.find(b"\xff\xd8")
-            end = self.raw_bytes.find(b"\xff\xd9")
-
-            if start != -1 and end != -1 and end > start:
-                jpg_data = self.raw_bytes[start : end + 2]
-                self.raw_bytes = self.raw_bytes[end + 2 :]
-
-                if len(self.raw_bytes) > 1_000_000:
-                    self.raw_bytes = b""
-
-                if len(jpg_data) > 100:
-                    np_arr = np.frombuffer(jpg_data, dtype=np.uint8)
-                    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-                    if frame is not None:
-                        return frame
+            latest_jpg = self._extract_latest_jpeg()
+            if latest_jpg is not None and len(latest_jpg) > 100:
+                np_arr = np.frombuffer(latest_jpg, dtype=np.uint8)
+                frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                if frame is not None:
+                    return frame
 
             if len(self.raw_bytes) > 2_000_000:
                 self.raw_bytes = b""
+
+    def _extract_latest_jpeg(self) -> Optional[bytes]:
+        """Extract and return the newest complete JPEG frame from the buffer."""
+        last_frame = None
+
+        while True:
+            start = self.raw_bytes.find(b"\xff\xd8")
+            if start == -1:
+                # No JPEG start marker in buffer.
+                if len(self.raw_bytes) > 1_000_000:
+                    self.raw_bytes = b""
+                return last_frame
+
+            end = self.raw_bytes.find(b"\xff\xd9", start + 2)
+            if end == -1:
+                # Keep partial JPEG from latest start marker and drop stale prefix noise.
+                if start > 0:
+                    self.raw_bytes = self.raw_bytes[start:]
+                return last_frame
+
+            last_frame = self.raw_bytes[start : end + 2]
+            self.raw_bytes = self.raw_bytes[end + 2 :]
 
     def release(self):
         """Safely terminate rpicam-vid process."""
