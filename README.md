@@ -56,6 +56,17 @@ python -m src.main --test-mode
 python -m src.main --test-mode --test-dispatch
 ```
 
+## BLE Notify
+
+`python -m src.main` 실행 시 출력 핸들러가 필요할 때 Raspberry Pi BLE Notify 서버를 시작합니다. Android 앱은 아래 GATT characteristic을 notify 구독해야 합니다.
+
+```text
+Name: RaspberryPi_BLE
+Service UUID: f82d9a22-3dc9-430e-875d-583c9ced1904
+Characteristic UUID: 2c5bba85-ac1c-46c2-a8d3-db389101a028
+Payload: {"event": "...", "message": "...", "ts": "..."}
+```
+
 ## Test
 
 ```bash
