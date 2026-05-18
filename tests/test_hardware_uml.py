@@ -28,12 +28,30 @@ def test_sensor_fill_threshold_and_alias():
 
 
 def test_bluetooth_connect_and_alert_alias():
-    bt = BluetoothC()
+    class FakeServer:
+        def __init__(self):
+            self.started = False
+            self.events = []
+
+        def start(self):
+            self.started = True
+            return True
+
+        def send_event(self, event, message):
+            self.events.append((event, message))
+            return True
+
+    server = FakeServer()
+    bt = BluetoothC(server=server)
     assert bt.isConnected is False
     assert bt.connect() is True
-    bt.sendAlert("msg")
-    bt.send_alert("msg2")
+    assert bt.sendAlert("msg") is True
+    assert bt.send_alert("msg2") is True
     assert bt.isConnected is True
+    assert server.events == [
+        ("BIN_FULL", "msg"),
+        ("BIN_FULL", "msg2"),
+    ]
 
 
 def test_mobile_app_stub_methods():

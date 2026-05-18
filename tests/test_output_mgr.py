@@ -178,3 +178,53 @@ def test_outputm_routes_device_exception_to_handle_exception():
     assert ("showCategory", "Can", "Can") in output.display.calls
     assert ("showWarning", "출력 장치 처리 중 예외가 발생했습니다.") in output.display.calls
     assert ("playEffect", "warning") in output.audio.calls
+
+
+def test_outputm_full_bin_uses_typed_ble_event():
+    class EventBluetooth:
+        def __init__(self):
+            self.calls = []
+
+        def sendEvent(self, event, message):
+            self.calls.append((event, message))
+            return True
+
+    output = OutputM()
+    output.display = StubDisplay()
+    output.audio = StubAudio()
+    output.servo = StubMotor()
+    output.sensor = StubSensor(full=True)
+    output.bluetooth = EventBluetooth()
+
+    output.handleClassification(ClassificationResult(WasteType.CAN, 0.91))
+
+    assert output.bluetooth.calls == [("BIN_FULL", "분류함 비움 필요")]
+
+
+def test_outputm_exception_uses_output_exception_ble_event():
+    class SafeDisplay:
+        def showWarning(self, _message):
+            return None
+
+    class SafeAudio:
+        def playEffect(self, _sound_type):
+            return None
+
+    class EventBluetooth:
+        def __init__(self):
+            self.calls = []
+
+        def sendEvent(self, event, message):
+            self.calls.append((event, message))
+            return True
+
+    output = OutputM()
+    output.display = SafeDisplay()
+    output.audio = SafeAudio()
+    output.bluetooth = EventBluetooth()
+
+    output.handleException()
+
+    assert output.bluetooth.calls == [
+        ("OUTPUT_EXCEPTION", "출력 장치 처리 중 예외가 발생했습니다.")
+    ]

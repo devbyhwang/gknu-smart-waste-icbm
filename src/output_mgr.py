@@ -35,6 +35,13 @@ class OutputM(HandleClassificationResult):
         if callable(play_effect):
             play_effect(SoundType.WARNING)
 
+        send_event = getattr(self.bluetooth, "sendEvent", None)
+        if callable(send_event):
+            try:
+                send_event("OUTPUT_EXCEPTION", warning_text)
+            except Exception:
+                pass
+
     def handleClassification(self, result: ClassificationResult):
         try:
             print(f"\n[OutputM] 결과 처리 시작: {result.label.value}")
@@ -72,13 +79,17 @@ class OutputM(HandleClassificationResult):
                     if callable(legacy_warning):
                         legacy_warning("분류함이 가득 찼습니다!")
 
-                send_alert = getattr(self.bluetooth, "sendAlert", None)
-                if callable(send_alert):
-                    send_alert("분류함 비움 필요")
+                send_event = getattr(self.bluetooth, "sendEvent", None)
+                if callable(send_event):
+                    send_event("BIN_FULL", "분류함 비움 필요")
                 else:
-                    legacy_send_alert = getattr(self.bluetooth, "send_alert", None)
-                    if callable(legacy_send_alert):
-                        legacy_send_alert("분류함 비움 필요")
+                    send_alert = getattr(self.bluetooth, "sendAlert", None)
+                    if callable(send_alert):
+                        send_alert("분류함 비움 필요")
+                    else:
+                        legacy_send_alert = getattr(self.bluetooth, "send_alert", None)
+                        if callable(legacy_send_alert):
+                            legacy_send_alert("분류함 비움 필요")
         except Exception:
             self.handleException()
 

@@ -1,5 +1,7 @@
 from enum import Enum
 
+from .ble_notify import EmbeddedBleServer
+
 
 class SoundType(Enum):
     SUCCESS = "success"
@@ -85,21 +87,35 @@ class SensorC:
 
 
 class BluetoothC:
-    def __init__(self):
+    def __init__(self, server=None):
         self.isConnected = False
+        self.server = server if server is not None else EmbeddedBleServer()
 
     def connect(self):
-        self.isConnected = True
-        print("[Bluetooth] 연결 완료")
+        self.isConnected = self.server.start()
+        if self.isConnected:
+            print("[Bluetooth] BLE 서버 연결 준비 완료")
+        else:
+            print("[Bluetooth] BLE 서버 시작 실패")
         return self.isConnected
 
-    def sendAlert(self, message):
+    def sendEvent(self, event, message):
         if not self.isConnected:
-            self.connect()
-        print(f"[Bluetooth] 스마트폰 앱으로 알림 전송: {message}")
+            if not self.connect():
+                return False
+
+        ok = self.server.send_event(event, message)
+        if ok:
+            print(f"[Bluetooth] 스마트폰 앱으로 알림 전송: [{event}] {message}")
+        else:
+            print(f"[Bluetooth] 스마트폰 앱 알림 전송 실패: [{event}] {message}")
+        return ok
+
+    def sendAlert(self, message):
+        return self.sendEvent("BIN_FULL", message)
 
     def send_alert(self, msg):
-        self.sendAlert(msg)
+        return self.sendAlert(msg)
 
 
 class MobileApp:

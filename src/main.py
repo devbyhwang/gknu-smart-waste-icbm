@@ -27,6 +27,13 @@ def main(argv=None):
     from .inference import InferenceEngine, WasteClassifier
     from .output_mgr import OutputM
 
+    handler = None
+    if not args.test_mode or args.test_dispatch:
+        handler = OutputM()
+        connect_bluetooth = getattr(handler.bluetooth, "connect", None)
+        if callable(connect_bluetooth):
+            connect_bluetooth()
+
     cam = CameraManager(
         index=args.camera_index,
         width=args.width,
@@ -34,10 +41,6 @@ def main(argv=None):
         fps=args.fps,
     )
     engine = InferenceEngine(args.model_path)
-
-    handler = None
-    if not args.test_mode or args.test_dispatch:
-        handler = OutputM()
 
     classifier = WasteClassifier(
         camera=cam,
