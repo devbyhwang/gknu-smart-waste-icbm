@@ -10,15 +10,34 @@ except ImportError:
 
 
 class InferenceEngine:
-    def __init__(self, model_path: str):
+    def __init__(
+        self,
+        model_path: str,
+        conf_thres: float = 0.1,
+        imgsz: int = 320,
+        device: str = "cpu",
+    ):
         self.model = YOLO(model_path)
+        self.conf_thres = conf_thres
+        self.imgsz = imgsz
+        self.device = device
 
     def predict(self, frame: Any):
         label, conf, _bbox = self.predict_detailed(frame)
         return label, conf
 
     def predict_detailed(self, frame: Any) -> Tuple[Optional[str], float, Optional[Tuple[int, int, int, int]]]:
-        res = self.model.predict(frame, verbose=False)
+        predict_kwargs = {
+            "verbose": False,
+            "conf": self.conf_thres,
+            "imgsz": self.imgsz,
+            "device": self.device,
+        }
+        try:
+            res = self.model.predict(frame, **predict_kwargs)
+        except TypeError:
+            # Test doubles and older wrappers may only accept verbose.
+            res = self.model.predict(frame, verbose=False)
         if res and len(res[0].boxes) > 0:
             boxes = res[0].boxes
             box = max(boxes, key=lambda b: b.conf.item())

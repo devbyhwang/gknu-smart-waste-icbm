@@ -11,6 +11,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fps", type=int, default=15)
     parser.add_argument("--max-count", type=int, default=3)
     parser.add_argument("--interval-ms", type=int, default=200)
+    parser.add_argument("--conf-thres", type=float, default=0.1, help="YOLO confidence threshold")
+    parser.add_argument("--imgsz", type=int, default=320, help="YOLO inference image size")
+    parser.add_argument("--device", default="cpu", help="YOLO inference device (e.g. cpu, 0)")
     parser.add_argument("--test-mode", action="store_true")
     parser.add_argument(
         "--test-dispatch",
@@ -60,7 +63,12 @@ def main(argv=None):
         height=args.height,
         fps=args.fps,
     )
-    engine = InferenceEngine(args.model_path)
+    engine = InferenceEngine(
+        args.model_path,
+        conf_thres=args.conf_thres,
+        imgsz=args.imgsz,
+        device=args.device,
+    )
 
     # img 폴더 경로도 스크립트 기준 절대 경로로
     img_dir = os.path.join(project_root, "img")
