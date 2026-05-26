@@ -4,13 +4,13 @@ import os
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="EcoSort-AIoT runner")
-    parser.add_argument("--model-path", default="best.pt")
+    parser.add_argument("--model-path", default="models/best.pt")
     parser.add_argument("--camera-index", type=int, default=0)
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--fps", type=int, default=15)
     parser.add_argument("--max-count", type=int, default=3)
-    parser.add_argument("--interval-ms", type=int, default=500)
+    parser.add_argument("--interval-ms", type=int, default=200)
     parser.add_argument("--test-mode", action="store_true")
     parser.add_argument(
         "--test-dispatch",
@@ -33,21 +33,19 @@ def main(argv=None):
         from inference import InferenceEngine, WasteClassifier
         from output_mgr import OutputM
 
-    # best.pt 경로를 현재 스크립트 기준 절대 경로로 변환
+    # 모델 경로를 현재 실행 경로/프로젝트 루트/src 기준으로 해석
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
-    if args.model_path == "best.pt" and not os.path.exists(args.model_path):
-        # 현재 폴더에 없으면 프로젝트 루트에서 찾음
-        alt_path = os.path.join(project_root, "best.pt")
-        if os.path.exists(alt_path):
-            args.model_path = alt_path
-            print(f"[main] best.pt 경로: {args.model_path}")
-        else:
-            # src 폴더에 best.pt가 있으면 그대로 사용
-            alt_src = os.path.join(script_dir, "best.pt")
-            if os.path.exists(alt_src):
-                args.model_path = alt_src
-                print(f"[main] best.pt 경로: {args.model_path}")
+    if not os.path.isabs(args.model_path) and not os.path.exists(args.model_path):
+        candidates = [
+            os.path.join(project_root, args.model_path),
+            os.path.join(script_dir, args.model_path),
+        ]
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                args.model_path = candidate
+                print(f"[main] model 경로: {args.model_path}")
+                break
 
     handler = None
     if not args.test_mode or args.test_dispatch:

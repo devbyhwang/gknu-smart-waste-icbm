@@ -74,6 +74,14 @@ Raspberry Pi 설치 및 용량 문제 해결 가이드: [docs/rpi-setup.md](docs
 python -m src.main
 ```
 
+기본 모델 경로는 `models/best.pt`입니다.
+다른 모델을 쓰려면 예시처럼 지정하세요.
+
+```bash
+python -m src.main --model-path models/yolov8n.pt
+python -m src.main --model-path models/yolo11n.pt
+```
+
 테스트 모드(카메라 화면 + YOLO 인식 오버레이):
 
 ```bash
