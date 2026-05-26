@@ -44,6 +44,9 @@ class StubBluetooth:
     def send_alert(self, msg):
         self.calls.append(("send_alert", msg))
 
+    def send_exception_alert(self, msg):
+        self.calls.append(("send_exception_alert", msg))
+
 
 def test_output_manager_sequence_without_full_bin():
     output = OutputManager()
@@ -167,17 +170,28 @@ def test_outputm_routes_device_exception_to_handle_exception():
         def isFull(self):
             return False
 
+    class EventBluetooth:
+        def __init__(self):
+            self.calls = []
+
+        def sendExceptionAlert(self, message):
+            self.calls.append(("sendExceptionAlert", message))
+
     output = OutputM()
     output.display = SafeDisplay()
     output.audio = SafeAudio()
     output.servo = BrokenMotor()
     output.sensor = NotFullSensor()
+    output.bluetooth = EventBluetooth()
 
     output.handleClassification(ClassificationResult(WasteType.CAN, 0.92))
 
     assert ("showCategory", "Can", "Can") in output.display.calls
     assert ("showWarning", "출력 장치 처리 중 예외가 발생했습니다.") in output.display.calls
     assert ("playEffect", "warning") in output.audio.calls
+    assert output.bluetooth.calls == [
+        ("sendExceptionAlert", "출력 장치 처리 중 예외가 발생했습니다."),
+    ]
 
 
 def test_outputm_full_bin_uses_typed_ble_event():
@@ -226,5 +240,35 @@ def test_outputm_exception_uses_output_exception_ble_event():
     output.handleException()
 
     assert output.bluetooth.calls == [
-        ("OUTPUT_EXCEPTION", "출력 장치 처리 중 예외가 발생했습니다.")
+        ("OUTPUT_EXCEPTION", "출력 장치 처리 중 예외가 발생했습니다."),
     ]
+
+
+def test_outputm_ble_failure_does_not_break_exception_flow():
+    class SafeDisplay:
+        def __init__(self):
+            self.calls = []
+
+        def showWarning(self, message):
+            self.calls.append(("showWarning", message))
+
+    class SafeAudio:
+        def __init__(self):
+            self.calls = []
+
+        def playEffect(self, sound_type):
+            self.calls.append(("playEffect", sound_type.value))
+
+    class BrokenBluetooth:
+        def sendExceptionAlert(self, _message):
+            raise RuntimeError("ble down")
+
+    output = OutputM()
+    output.display = SafeDisplay()
+    output.audio = SafeAudio()
+    output.bluetooth = BrokenBluetooth()
+
+    output.handleException()
+
+    assert ("showWarning", "출력 장치 처리 중 예외가 발생했습니다.") in output.display.calls
+    assert ("playEffect", "warning") in output.audio.calls

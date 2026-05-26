@@ -10,6 +10,29 @@ class OutputM(HandleClassificationResult):
         self.sensor = SensorC()
         self.bluetooth = BluetoothC()
 
+    def _send_bluetooth_message(self, method_name: str, legacy_name: str, message: str):
+        sender = getattr(self.bluetooth, method_name, None)
+        if not callable(sender):
+            sender = getattr(self.bluetooth, legacy_name, None)
+        if not callable(sender):
+            return False
+
+        try:
+            sender(message)
+            return True
+        except Exception:
+            return False
+
+    def _send_bluetooth_event(self, event: str, message: str, method_name: str, legacy_name: str):
+        sender = getattr(self.bluetooth, "sendEvent", None)
+        if callable(sender):
+            try:
+                return bool(sender(event, message))
+            except Exception:
+                return False
+
+        return self._send_bluetooth_message(method_name, legacy_name, message)
+
     def checkBinFull(self):
         is_full = getattr(self.sensor, "isFull", None)
         if callable(is_full):
@@ -35,12 +58,12 @@ class OutputM(HandleClassificationResult):
         if callable(play_effect):
             play_effect(SoundType.WARNING)
 
-        send_event = getattr(self.bluetooth, "sendEvent", None)
-        if callable(send_event):
-            try:
-                send_event("OUTPUT_EXCEPTION", warning_text)
-            except Exception:
-                pass
+        self._send_bluetooth_event(
+            "OUTPUT_EXCEPTION",
+            warning_text,
+            "sendExceptionAlert",
+            "send_exception_alert",
+        )
 
     def handleClassification(self, result: ClassificationResult):
         try:
@@ -79,17 +102,12 @@ class OutputM(HandleClassificationResult):
                     if callable(legacy_warning):
                         legacy_warning("분류함이 가득 찼습니다!")
 
-                send_event = getattr(self.bluetooth, "sendEvent", None)
-                if callable(send_event):
-                    send_event("BIN_FULL", "분류함 비움 필요")
-                else:
-                    send_alert = getattr(self.bluetooth, "sendAlert", None)
-                    if callable(send_alert):
-                        send_alert("분류함 비움 필요")
-                    else:
-                        legacy_send_alert = getattr(self.bluetooth, "send_alert", None)
-                        if callable(legacy_send_alert):
-                            legacy_send_alert("분류함 비움 필요")
+                self._send_bluetooth_event(
+                    "BIN_FULL",
+                    "분류함 비움 필요",
+                    "sendAlert",
+                    "send_alert",
+                )
         except Exception:
             self.handleException()
 

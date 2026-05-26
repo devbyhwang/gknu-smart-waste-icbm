@@ -1,6 +1,7 @@
 from enum import Enum
 
 from .ble_notify import EmbeddedBleServer
+from .mobile.ble_notifier import BleNotifier, MockBleNotifier
 
 try:
     from gpiozero import DistanceSensor
@@ -119,16 +120,24 @@ class SensorC:
 
 
 class BluetoothC:
-    def __init__(self, server=None):
+    def __init__(self, server=None, notifier: BleNotifier | None = None):
         self.isConnected = False
-        self.server = server if server is not None else EmbeddedBleServer()
+        self.server = server
+        self.notifier = notifier or MockBleNotifier()
+
+        if self.server is None and notifier is None:
+            self.server = EmbeddedBleServer()
 
     def connect(self):
-        self.isConnected = self.server.start()
-        if self.isConnected:
-            print("[Bluetooth] BLE 서버 연결 준비 완료")
-        else:
-            print("[Bluetooth] BLE 서버 시작 실패")
+        if self.server is not None:
+            self.isConnected = self.server.start()
+            if self.isConnected:
+                print("[Bluetooth] BLE 서버 연결 준비 완료")
+            else:
+                print("[Bluetooth] BLE 서버 시작 실패")
+            return self.isConnected
+
+        self.isConnected = True
         return self.isConnected
 
     def sendEvent(self, event, message):
@@ -136,18 +145,27 @@ class BluetoothC:
             if not self.connect():
                 return False
 
-        ok = self.server.send_event(event, message)
-        if ok:
-            print(f"[Bluetooth] 스마트폰 앱으로 알림 전송: [{event}] {message}")
-        else:
-            print(f"[Bluetooth] 스마트폰 앱 알림 전송 실패: [{event}] {message}")
-        return ok
+        if self.server is not None:
+            ok = self.server.send_event(event, message)
+            if ok:
+                print(f"[Bluetooth] 스마트폰 앱으로 알림 전송: [{event}] {message}")
+            else:
+                print(f"[Bluetooth] 스마트폰 앱 알림 전송 실패: [{event}] {message}")
+            return ok
+
+        return self.notifier.notify(event, message)
 
     def sendAlert(self, message):
         return self.sendEvent("BIN_FULL", message)
 
+    def sendExceptionAlert(self, message):
+        return self.sendEvent("OUTPUT_EXCEPTION", message)
+
     def send_alert(self, msg):
         return self.sendAlert(msg)
+
+    def send_exception_alert(self, msg):
+        return self.sendExceptionAlert(msg)
 
 
 class MobileApp:
