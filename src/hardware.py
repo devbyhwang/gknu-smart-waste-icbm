@@ -1,8 +1,12 @@
 from enum import Enum
 import subprocess
 
-from .ble_notify import EmbeddedBleServer
-from .mobile.ble_notifier import BleNotifier, MockBleNotifier
+try:
+    from .ble_notify import EmbeddedBleServer
+    from .mobile.ble_notifier import BleNotifier, MockBleNotifier
+except ImportError:
+    from ble_notify import EmbeddedBleServer
+    from mobile.ble_notifier import BleNotifier, MockBleNotifier
 
 try:
     import pygame

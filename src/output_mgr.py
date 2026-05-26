@@ -1,5 +1,9 @@
-from .hardware import AudioC, BluetoothC, DisplayC, SensorC, ServoC, SoundType
-from .models import ClassificationResult, HandleClassificationResult
+try:
+    from .hardware import AudioC, BluetoothC, DisplayC, SensorC, ServoC, SoundType
+    from .models import ClassificationResult, HandleClassificationResult
+except ImportError:
+    from hardware import AudioC, BluetoothC, DisplayC, SensorC, ServoC, SoundType
+    from models import ClassificationResult, HandleClassificationResult
 
 
 class OutputM(HandleClassificationResult):
