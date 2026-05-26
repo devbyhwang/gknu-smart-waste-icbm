@@ -2,6 +2,15 @@ from enum import Enum
 
 from .ble_notify import EmbeddedBleServer
 
+try:
+    from gpiozero import DistanceSensor
+    from gpiozero.pins.lgpio import LGPIOFactory
+
+    _GPIO_FACTORY = LGPIOFactory()
+except Exception:
+    DistanceSensor = None
+    _GPIO_FACTORY = None
+
 
 class SoundType(Enum):
     SUCCESS = "success"
@@ -69,10 +78,28 @@ class MotorC:
 
 
 class SensorC:
-    def __init__(self, fillThreshold=0.8):
+    def __init__(self, fillThreshold=0.8, trig=23, echo=25, height_dist=720):
         self.fillThreshold = fillThreshold
+        self.empty_bin_dist = height_dist / 10.0
+        self.sensor = None
+
+        if DistanceSensor is not None and _GPIO_FACTORY is not None:
+            try:
+                self.sensor = DistanceSensor(
+                    echo=echo,
+                    trigger=trig,
+                    pin_factory=_GPIO_FACTORY,
+                )
+            except Exception:
+                self.sensor = None
 
     def checkFillLevel(self):
+        if self.sensor is not None:
+            current_dist = self.sensor.distance * 100
+            filled_height = self.empty_bin_dist - current_dist
+            fill_ratio = filled_height / self.empty_bin_dist
+            return max(0.0, min(1.0, fill_ratio))
+
         analog = self.readAnalogValue()
         return max(0.0, min(1.0, analog / 1023.0))
 
@@ -80,6 +107,11 @@ class SensorC:
         return self.checkFillLevel() >= self.fillThreshold
 
     def readAnalogValue(self):
+        if self.sensor is not None:
+            current_dist = self.sensor.distance * 100
+            if current_dist > self.empty_bin_dist:
+                current_dist = self.empty_bin_dist
+            return (current_dist / self.empty_bin_dist) * 100
         return 0
 
     def is_full(self):
