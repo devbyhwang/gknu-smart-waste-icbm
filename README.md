@@ -95,6 +95,7 @@ python -m src.main --test-mode --test-dispatch
 ```
 
 Python UI 안내창 구현 후에는 일반 실행과 테스트 디스패치 실행 모두에서 분류 결과/적재량 화면 갱신을 확인합니다.
+분류 이미지 에셋은 `img/` 폴더를 사용합니다.
 
 ## BLE Notify
 
