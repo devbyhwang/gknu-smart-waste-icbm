@@ -10,6 +10,22 @@ try:
 except ImportError:
     from models import ClassificationResult, HandleClassificationResult, WasteType
 
+LABEL_ALIASES = {
+    "can": "can",
+    "plastic": "plastic",
+    "glass": "glass",
+    "paper": "paper",
+    "unknown": "unknown",
+    "캔": "can",
+    "금속캔": "can",
+    "건전지": "can",
+    "페트병": "plastic",
+    "플라스틱": "plastic",
+    "유리병": "glass",
+    "형광등": "glass",
+    "종이": "paper",
+}
+
 
 class InferenceEngine:
     def __init__(
@@ -79,6 +95,14 @@ class WasteClassifier:
         self.consecutive_count = 0
         self._overlay_font_cache = {}
 
+    def _normalize_label(self, label: Optional[str]) -> Optional[str]:
+        if label is None:
+            return None
+        normalized = str(label).strip()
+        if not normalized:
+            return None
+        return LABEL_ALIASES.get(normalized.lower(), LABEL_ALIASES.get(normalized, normalized.lower()))
+
     def _get_overlay_font(self, font_size: int):
         try:
             from PIL import ImageFont
@@ -128,6 +152,7 @@ class WasteClassifier:
             cv2.putText(view, safe_text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
     def validate(self, label: Optional[str], conf: float) -> bool:
+        label = self._normalize_label(label)
         if not label or conf < self.min_confidence:
             self.consecutive_count = 0
             return False
@@ -141,6 +166,7 @@ class WasteClassifier:
         return self.consecutive_count == self.max_count
 
     def map_to_enum(self, label_str: Optional[str]) -> WasteType:
+        label_str = self._normalize_label(label_str)
         if not label_str:
             return WasteType.UNKNOWN
 
@@ -210,6 +236,7 @@ class WasteClassifier:
                 cycle += 1
                 before_label = self.last_label
                 label, conf, bbox = self.engine.predict_detailed(frame)
+                label = self._normalize_label(label)
                 is_valid = self.validate(label, conf)
                 triggered = False
                 decision = "WAIT"
