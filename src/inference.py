@@ -40,6 +40,7 @@ class WasteClassifier:
         max_count: int = 3,
         interval_ms: int = 1000,
         handler: Optional[HandleClassificationResult] = None,
+        img_dir: Optional[str] = None,
         camera_mgr=None,
     ):
         self.camera = camera if camera is not None else camera_mgr
@@ -47,6 +48,7 @@ class WasteClassifier:
         self.handler = handler
         self.max_count = max_count
         self.interval_ms = interval_ms
+        self.img_dir = img_dir
         self.last_label = None
         self.consecutive_count = 0
 
