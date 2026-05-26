@@ -1,6 +1,8 @@
+import os
 import time
 from typing import Any, Optional, Tuple
 
+import numpy as np
 from ultralytics import YOLO
 
 try:
@@ -61,6 +63,7 @@ class WasteClassifier:
         engine: Optional[InferenceEngine] = None,
         max_count: int = 3,
         interval_ms: int = 1000,
+        min_confidence: float = 0.6,
         handler: Optional[HandleClassificationResult] = None,
         img_dir: Optional[str] = None,
         camera_mgr=None,
@@ -70,12 +73,62 @@ class WasteClassifier:
         self.handler = handler
         self.max_count = max_count
         self.interval_ms = interval_ms
+        self.min_confidence = min_confidence
         self.img_dir = img_dir
         self.last_label = None
         self.consecutive_count = 0
+        self._overlay_font_cache = {}
+
+    def _get_overlay_font(self, font_size: int):
+        try:
+            from PIL import ImageFont
+        except Exception:
+            return None
+
+        cached = self._overlay_font_cache.get(font_size)
+        if cached is not None:
+            return cached
+
+        font_candidates = [
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+            "/usr/share/fonts/truetype/nanum/NanumGothicCoding.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+            "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+        ]
+        for font_path in font_candidates:
+            if os.path.exists(font_path):
+                try:
+                    font = ImageFont.truetype(font_path, font_size)
+                    self._overlay_font_cache[font_size] = font
+                    return font
+                except Exception:
+                    continue
+        return None
+
+    def _draw_detected_text(self, view, text: str, x: int = 12, y: int = 52):
+        import cv2
+
+        font = self._get_overlay_font(22)
+        if font is None:
+            safe_text = text.encode("ascii", "replace").decode("ascii")
+            cv2.putText(view, safe_text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            return
+
+        try:
+            from PIL import Image, ImageDraw
+
+            rgb = cv2.cvtColor(view, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(rgb)
+            draw = ImageDraw.Draw(pil_img)
+            draw.text((x, y - 20), text, font=font, fill=(255, 255, 255), stroke_width=2, stroke_fill=(0, 0, 0))
+            view[:] = cv2.cvtColor(np.asarray(pil_img), cv2.COLOR_RGB2BGR)
+        except Exception:
+            safe_text = text.encode("ascii", "replace").decode("ascii")
+            cv2.putText(view, safe_text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
     def validate(self, label: Optional[str], conf: float) -> bool:
-        if not label or conf < 0.8:
+        if not label or conf < self.min_confidence:
             self.consecutive_count = 0
             return False
 
@@ -163,7 +216,7 @@ class WasteClassifier:
 
                 if not label:
                     decision = "NO_LABEL"
-                elif conf < 0.8:
+                elif conf < self.min_confidence:
                     decision = "LOW_CONF"
                 elif label != before_label:
                     decision = "NEW_LABEL"
@@ -191,14 +244,14 @@ class WasteClassifier:
                 trigger_text = "TRIGGERED" if triggered else "WAITING"
                 dispatch_text = "Dispatch: ON" if dispatch_results else "Dispatch: OFF"
                 quit_text = "Press 'q' or ESC to quit"
-                rule_text = f"Rule: conf>=0.80 and same label x{self.max_count}"
+                rule_text = f"Rule: conf>={self.min_confidence:.2f} and same label x{self.max_count}"
                 interval_text = f"Interval: {self.interval_ms}ms"
                 cycle_text = f"Cycle: {cycle}"
                 decision_text = f"Decision: {decision}"
                 pass_text = f"Last pass: {last_pass_text}"
 
                 cv2.putText(view, "[TEST MODE]", (12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                cv2.putText(view, detected_text, (12, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                self._draw_detected_text(view, detected_text, 12, 52)
                 cv2.putText(view, count_text, (12, 78), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                 cv2.putText(
                     view,
