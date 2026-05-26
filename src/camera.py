@@ -1,4 +1,6 @@
+import os
 import subprocess
+import time
 from typing import Any, Optional
 
 import cv2
@@ -31,6 +33,7 @@ class CameraManager:
             str(self.fps),
             "--codec",
             "mjpeg",
+            "--low-latency",
             "--inline",
             "--nopreview",
             "-o",
@@ -43,6 +46,8 @@ class CameraManager:
                 stderr=subprocess.DEVNULL,
                 bufsize=10**6,
             )
+            if self.proc.stdout is not None:
+                os.set_blocking(self.proc.stdout.fileno(), False)
             print(
                 f"[Camera] Started rpicam-vid stream "
                 f"({self.width}x{self.height} @ {self.fps}fps, cam={self.index})"
@@ -53,34 +58,52 @@ class CameraManager:
             print(f"[Camera] Failed to start rpicam-vid: {exc}")
 
     def get_frame(self) -> Optional[Any]:
-        """Read bytes from MJPEG stream, decode one JPEG frame, and return it."""
+        """Read and decode the newest available JPEG frame with minimal latency."""
         if not self.proc or self.proc.stdout is None:
             self._start_process()
             if not self.proc or self.proc.stdout is None:
                 return None
 
-        while True:
-            if self.proc.stdout is None:
-                return None
+        if self.proc.stdout is None:
+            return None
 
-            chunk = self.proc.stdout.read(4096)
-            if not chunk:
+        fd = self.proc.stdout.fileno()
+        latest_jpg = None
+        deadline = time.monotonic() + 0.03
+
+        while True:
+            try:
+                chunk = os.read(fd, 65536)
+            except BlockingIOError:
+                chunk = None
+
+            if chunk:
+                self.raw_bytes += chunk
+                newest = self._extract_latest_jpeg()
+                if newest is not None and len(newest) > 100:
+                    latest_jpg = newest
+                if len(self.raw_bytes) > 2_000_000:
+                    self.raw_bytes = b""
+                if time.monotonic() < deadline:
+                    continue
+                break
+
+            if chunk == b"" and self.proc.poll() is not None:
                 # Stream ended unexpectedly; restart for next loop cycle.
                 self.release()
                 self._start_process()
                 return None
 
-            self.raw_bytes += chunk
+            if latest_jpg is not None or time.monotonic() >= deadline:
+                break
+            time.sleep(0.001)
 
-            latest_jpg = self._extract_latest_jpeg()
-            if latest_jpg is not None and len(latest_jpg) > 100:
-                np_arr = np.frombuffer(latest_jpg, dtype=np.uint8)
-                frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-                if frame is not None:
-                    return frame
+        if latest_jpg is None:
+            return None
 
-            if len(self.raw_bytes) > 2_000_000:
-                self.raw_bytes = b""
+        np_arr = np.frombuffer(latest_jpg, dtype=np.uint8)
+        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        return frame
 
     def _extract_latest_jpeg(self) -> Optional[bytes]:
         """Extract and return the newest complete JPEG frame from the buffer."""
