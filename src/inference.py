@@ -3,7 +3,10 @@ from typing import Any, Optional, Tuple
 
 from ultralytics import YOLO
 
-from .models import ClassificationResult, HandleClassificationResult, WasteType
+try:
+    from .models import ClassificationResult, HandleClassificationResult, WasteType
+except ImportError:
+    from models import ClassificationResult, HandleClassificationResult, WasteType
 
 
 class InferenceEngine:
