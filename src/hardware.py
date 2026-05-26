@@ -1,7 +1,13 @@
 from enum import Enum
+import subprocess
 
 from .ble_notify import EmbeddedBleServer
 from .mobile.ble_notifier import BleNotifier, MockBleNotifier
+
+try:
+    import pygame
+except Exception:
+    pygame = None
 
 try:
     from gpiozero import DistanceSensor
@@ -43,19 +49,49 @@ class DisplayC:
 class AudioC:
     def __init__(self):
         self.volume = 5
+        self.category = {
+            "페트병": "플라스틱",
+            "플라스틱": "플라스틱",
+            "종이": "일반",
+            "스티로폼": "일반",
+            "비닐": "일반",
+            "금속캔": "캔",
+            "건전지": "캔",
+            "유리병": "유리",
+            "형광등": "유리",
+        }
 
     def playTTS(self, koreanText):
-        print(f"[Audio] '이것은 {koreanText}입니다' 재생")
+        phrase = f"이것은 {koreanText}입니다"
+        try:
+            subprocess.Popen(["espeak", "-v", "ko", phrase])
+        except Exception:
+            print(f"[Audio] '{phrase}' 재생")
 
     def playEffect(self, soundType: SoundType):
         print(f"[Audio] 효과음 재생: {soundType.value}")
+        path = self.loadAudioFile("/home/trash/Downloads/YCOIN.mp3")
+        if not pygame or not path:
+            return
+
+        try:
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
+            sound = pygame.mixer.Sound(path)
+            sound.play()
+        except Exception:
+            # 오디오 파일/장치 이슈가 전체 플로우를 깨지 않도록 무시.
+            pass
 
     def loadAudioFile(self, path):
         print(f"[Audio] 오디오 파일 로드 시도: {path}")
-        return bool(path)
+        return path
 
     def play_tts(self, text):
-        self.playTTS(text)
+        text = (text or "").strip()
+        mapped = self.category.get(text, text)
+        self.playEffect(SoundType.SUCCESS)
+        self.playTTS(mapped)
 
 
 class MotorC:
