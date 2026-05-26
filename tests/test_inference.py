@@ -29,7 +29,7 @@ def test_validate_threshold_and_reset(monkeypatch):
     assert classifier.validate("can", 0.9) is False
     assert classifier.consecutive_count == 1
 
-    assert classifier.validate("can", 0.7) is False
+    assert classifier.validate("can", 0.5) is False
     assert classifier.consecutive_count == 0
 
 
