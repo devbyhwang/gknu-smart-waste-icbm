@@ -4,7 +4,7 @@ import os
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="EcoSort-AIoT runner")
-    parser.add_argument("--model-path", default="models/best.pt")
+    parser.add_argument("--model-path", default="best.pt")
     parser.add_argument("--camera-index", type=int, default=0)
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
