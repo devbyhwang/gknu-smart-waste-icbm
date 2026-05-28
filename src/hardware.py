@@ -57,6 +57,7 @@ class DisplayC:
         self.full_bins = set()
         self.message = "인식 대기"
         self._asset_cache = {}
+        self._font_cache = {}
         self._window_ready = False
         self.enable_window = self._should_enable_window(enable_window)
 
@@ -154,18 +155,63 @@ class DisplayC:
         cv2.rectangle(canvas, (x + 4, top), (x + width - 4, y + height - 4), fill_color, -1)
         cv2.putText(canvas, f"{int(round(fill * 100))}%", (x + 18, y + height + 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, fill_color, 2)
 
+    def _get_text_font(self, font_size):
+        try:
+            from PIL import ImageFont
+        except Exception:
+            return None
+
+        cached = self._font_cache.get(font_size)
+        if cached is not None:
+            return cached
+
+        font_candidates = [
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+            "/usr/share/fonts/truetype/nanum/NanumGothicCoding.ttf",
+            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+            "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ]
+        for font_path in font_candidates:
+            if os.path.exists(font_path):
+                try:
+                    font = ImageFont.truetype(font_path, font_size)
+                    self._font_cache[font_size] = font
+                    return font
+                except Exception:
+                    continue
+        return None
+
+    def _draw_text(self, canvas, text, x, y, font_size, color, thickness=2):
+        font = self._get_text_font(font_size)
+        if font is None:
+            safe_text = text.encode("ascii", "replace").decode("ascii")
+            cv2.putText(canvas, safe_text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font_size / 36, color, thickness)
+            return
+
+        try:
+            from PIL import Image, ImageDraw
+
+            rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(rgb)
+            draw = ImageDraw.Draw(pil_img)
+            draw.text((x, y - font_size), text, font=font, fill=color[::-1])
+            canvas[:] = cv2.cvtColor(np.asarray(pil_img), cv2.COLOR_RGB2BGR)
+        except Exception:
+            safe_text = text.encode("ascii", "replace").decode("ascii")
+            cv2.putText(canvas, safe_text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font_size / 36, color, thickness)
+
+    def _classification_message(self):
+        if self.selected_label:
+            return f"{self.selected_label}으로 분류되었습니다"
+        return self.message or "인식 대기"
+
     def render_frame(self):
         if cv2 is None or np is None:
             return None
 
         canvas = np.full((720, 1280, 3), (245, 245, 245), dtype=np.uint8)
-        cv2.putText(canvas, "Smart Waste Bin", (36, 56), cv2.FONT_HERSHEY_SIMPLEX, 1.25, (35, 35, 35), 3)
-
-        status = self.message or "Ready"
-        if self.selected_label:
-            conf = "N/A" if self.confidence is None else f"{self.confidence * 100:.1f}%"
-            status = f"Result: {self.selected_label}  Confidence: {conf}"
-        cv2.putText(canvas, status, (36, 102), cv2.FONT_HERSHEY_SIMPLEX, 0.82, (70, 70, 70), 2)
+        self._draw_text(canvas, self._classification_message(), 36, 72, 34, (35, 35, 35), 2)
 
         card_w = 280
         gap = 28
