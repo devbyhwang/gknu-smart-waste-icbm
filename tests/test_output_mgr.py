@@ -1,5 +1,5 @@
 from src.models import ClassificationResult, WasteType
-from src.output_mgr import OutputM, OutputManager
+from src.output_mgr import BIN_SENSOR_CONFIG, OutputM, OutputManager
 
 
 class StubDisplay:
@@ -54,6 +54,15 @@ class StubBluetooth:
 
     def send_exception_alert(self, msg):
         self.calls.append(("send_exception_alert", msg))
+
+
+def test_bin_sensor_config_matches_physical_gpio_layout():
+    assert BIN_SENSOR_CONFIG == {
+        WasteType.CAN: {"trig": 23, "echo": 25},
+        WasteType.PLASTIC: {"trig": 17, "echo": 27},
+        WasteType.GLASS: {"trig": 22, "echo": 24},
+        WasteType.PAPER: {"trig": 5, "echo": 6},
+    }
 
 
 def test_output_manager_sequence_without_full_bin():

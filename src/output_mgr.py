@@ -8,9 +8,9 @@ except ImportError:
 
 BIN_SENSOR_CONFIG = {
     WasteType.CAN: {"trig": 23, "echo": 25},
-    WasteType.PLASTIC: {"trig": 5, "echo": 6},
-    WasteType.GLASS: {"trig": 13, "echo": 19},
-    WasteType.PAPER: {"trig": 20, "echo": 21},
+    WasteType.PLASTIC: {"trig": 17, "echo": 27},
+    WasteType.GLASS: {"trig": 22, "echo": 24},
+    WasteType.PAPER: {"trig": 5, "echo": 6},
 }
 
 
