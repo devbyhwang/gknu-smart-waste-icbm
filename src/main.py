@@ -9,7 +9,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--fps", type=int, default=15)
-    parser.add_argument("--max-count", type=int, default=3)
+    parser.add_argument("--max-count", type=int, default=1)
     parser.add_argument("--interval-ms", type=int, default=200)
     parser.add_argument("--conf-thres", type=float, default=0.1, help="YOLO confidence threshold")
     parser.add_argument("--imgsz", type=int, default=320, help="YOLO inference image size")
