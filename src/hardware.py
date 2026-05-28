@@ -1,5 +1,14 @@
 from enum import Enum
+import os
 import subprocess
+import sys
+
+try:
+    import cv2
+    import numpy as np
+except Exception:
+    cv2 = None
+    np = None
 
 try:
     from .ble_notify import EmbeddedBleServer
@@ -29,19 +38,212 @@ class SoundType(Enum):
 
 
 class DisplayC:
-    def __init__(self):
-        self.isScreenOn = True
+    BIN_ORDER = ("Can", "Plastic", "Glass", "Paper")
+    IMAGE_BY_BIN = {
+        "Can": "금속.PNG",
+        "Plastic": "플라스틱.PNG",
+        "Glass": "유리.PNG",
+        "Paper": "종이.PNG",
+    }
+    WINDOW_NAME = "Smart Bin Display"
 
-    def showCategory(self, icon, text):
+    def __init__(self, img_dir=None, window_name=None, enable_window=None):
+        self.isScreenOn = True
+        self.window_name = window_name or self.WINDOW_NAME
+        self.img_dir = img_dir or self._default_img_dir()
+        self.selected_label = None
+        self.confidence = None
+        self.fill_levels = {label: None for label in self.BIN_ORDER}
+        self.full_bins = set()
+        self.message = "인식 대기"
+        self._asset_cache = {}
+        self._window_ready = False
+        self.enable_window = self._should_enable_window(enable_window)
+
+    def _default_img_dir(self):
+        return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "img"))
+
+    def _should_enable_window(self, enable_window):
+        if enable_window is not None:
+            return bool(enable_window)
+        if cv2 is None or os.environ.get("PYTEST_CURRENT_TEST"):
+            return False
+        if os.environ.get("SMART_BIN_DISPLAY_HEADLESS") == "1":
+            return False
+        if sys.platform == "darwin":
+            return True
+        return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+    def _normalize_bin_key(self, key):
+        if key is None:
+            return None
+        value = getattr(key, "value", key)
+        value = str(value)
+        aliases = {
+            "can": "Can",
+            "plastic": "Plastic",
+            "glass": "Glass",
+            "paper": "Paper",
+            "캔": "Can",
+            "금속": "Can",
+            "금속캔": "Can",
+            "페트병": "Plastic",
+            "플라스틱": "Plastic",
+            "유리": "Glass",
+            "유리병": "Glass",
+            "종이": "Paper",
+        }
+        return aliases.get(value.lower(), aliases.get(value, value if value in self.BIN_ORDER else None))
+
+    def _normalize_fill_levels(self, fill_levels):
+        normalized = {label: None for label in self.BIN_ORDER}
+        if not fill_levels:
+            return normalized
+        for key, value in fill_levels.items():
+            label = self._normalize_bin_key(key)
+            if label not in normalized:
+                continue
+            if value is None:
+                normalized[label] = None
+                continue
+            try:
+                normalized[label] = max(0.0, min(1.0, float(value)))
+            except (TypeError, ValueError):
+                normalized[label] = None
+        return normalized
+
+    def _load_asset(self, label):
+        if cv2 is None:
+            return None
+        if label in self._asset_cache:
+            return self._asset_cache[label]
+
+        filename = self.IMAGE_BY_BIN.get(label)
+        path = os.path.join(self.img_dir, filename) if filename else None
+        image = cv2.imread(path, cv2.IMREAD_UNCHANGED) if path and os.path.exists(path) else None
+        self._asset_cache[label] = image
+        return image
+
+    def _paste_image(self, canvas, image, x, y, width, height):
+        if image is None:
+            cv2.rectangle(canvas, (x, y), (x + width, y + height), (70, 70, 70), 2)
+            cv2.putText(canvas, "NO IMAGE", (x + 28, y + height // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (170, 170, 170), 2)
+            return
+
+        resized = cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
+        if resized.shape[2] == 4:
+            rgb = resized[:, :, :3]
+            alpha = resized[:, :, 3:4] / 255.0
+            region = canvas[y : y + height, x : x + width]
+            canvas[y : y + height, x : x + width] = (alpha * rgb + (1 - alpha) * region).astype(canvas.dtype)
+        else:
+            canvas[y : y + height, x : x + width] = resized
+
+    def _draw_bin_gauge(self, canvas, x, y, width, height, fill, is_full):
+        border = (60, 60, 60)
+        fill_color = (45, 180, 80) if not is_full else (40, 40, 220)
+        cv2.rectangle(canvas, (x, y), (x + width, y + height), border, 3)
+        cv2.rectangle(canvas, (x + width // 5, y - 10), (x + width - width // 5, y), border, 3)
+
+        if fill is None:
+            cv2.putText(canvas, "N/A", (x + 20, y + height // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (140, 140, 140), 2)
+            return
+
+        fill_height = int((height - 8) * max(0.0, min(1.0, fill)))
+        top = y + height - 4 - fill_height
+        cv2.rectangle(canvas, (x + 4, top), (x + width - 4, y + height - 4), fill_color, -1)
+        cv2.putText(canvas, f"{int(round(fill * 100))}%", (x + 18, y + height + 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, fill_color, 2)
+
+    def render_frame(self):
+        if cv2 is None or np is None:
+            return None
+
+        canvas = np.full((720, 1280, 3), (245, 245, 245), dtype=np.uint8)
+        cv2.putText(canvas, "Smart Waste Bin", (36, 56), cv2.FONT_HERSHEY_SIMPLEX, 1.25, (35, 35, 35), 3)
+
+        status = self.message or "Ready"
+        if self.selected_label:
+            conf = "N/A" if self.confidence is None else f"{self.confidence * 100:.1f}%"
+            status = f"Result: {self.selected_label}  Confidence: {conf}"
+        cv2.putText(canvas, status, (36, 102), cv2.FONT_HERSHEY_SIMPLEX, 0.82, (70, 70, 70), 2)
+
+        card_w = 280
+        gap = 28
+        start_x = 36
+        card_y = 138
+        for idx, label in enumerate(self.BIN_ORDER):
+            x = start_x + idx * (card_w + gap)
+            is_selected = label == self.selected_label
+            is_full = label in self.full_bins
+            outline = (20, 130, 255) if is_selected else (205, 205, 205)
+            if is_full:
+                outline = (40, 40, 220)
+            cv2.rectangle(canvas, (x, card_y), (x + card_w, card_y + 530), outline, 3)
+
+            self._paste_image(canvas, self._load_asset(label), x + 35, card_y + 25, 210, 210)
+            cv2.putText(canvas, label, (x + 36, card_y + 280), cv2.FONT_HERSHEY_SIMPLEX, 0.92, (35, 35, 35), 2)
+            if is_selected:
+                cv2.putText(canvas, "SELECTED", (x + 36, card_y + 314), cv2.FONT_HERSHEY_SIMPLEX, 0.56, (20, 130, 255), 2)
+            if is_full:
+                cv2.putText(canvas, "FULL", (x + 168, card_y + 314), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (40, 40, 220), 2)
+
+            self._draw_bin_gauge(
+                canvas,
+                x + 78,
+                card_y + 350,
+                124,
+                120,
+                self.fill_levels.get(label),
+                is_full,
+            )
+
+        return canvas
+
+    def _show_frame(self):
+        frame = self.render_frame()
+        if frame is None or not self.enable_window:
+            return
+
+        try:
+            if not self._window_ready:
+                cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+                cv2.resizeWindow(self.window_name, 1280, 720)
+                self._window_ready = True
+            cv2.imshow(self.window_name, frame)
+            cv2.waitKey(1)
+        except Exception:
+            self.enable_window = False
+
+    def showClassificationStatus(self, label, confidence=None, fill_levels=None, full_bins=None, message=None):
+        self.selected_label = self._normalize_bin_key(label) or str(label)
+        self.confidence = confidence
+        self.fill_levels = self._normalize_fill_levels(fill_levels)
+        self.full_bins = {
+            normalized
+            for normalized in (self._normalize_bin_key(item) for item in (full_bins or []))
+            if normalized
+        }
+        self.message = message or "분류 결과 표시"
+        print(f"[Display] 분류 결과 '{self.selected_label}' / confidence={confidence} / fill={self.fill_levels}")
+        self.refreshScreen()
+
+    def showCategory(self, icon, text, confidence=None, fill_levels=None, full_bins=None):
+        if confidence is not None or fill_levels is not None or full_bins is not None:
+            return self.showClassificationStatus(text or icon, confidence, fill_levels, full_bins)
+
+        self.selected_label = self._normalize_bin_key(text or icon) or text or icon
+        self.message = "분류 결과 표시"
         print(f"[Display] 화면에 {icon} 아이콘 / 텍스트 '{text}' 표시")
         self.refreshScreen()
 
     def showWarning(self, message):
+        self.message = message
         print(f"[Display] 경고: {message}")
         self.refreshScreen()
 
     def refreshScreen(self):
         print("[Display] 화면 갱신")
+        self._show_frame()
 
     def show_category(self, text):
         self.showCategory(text, text)
