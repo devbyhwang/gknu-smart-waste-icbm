@@ -77,7 +77,7 @@ class WasteClassifier:
         self,
         camera=None,
         engine: Optional[InferenceEngine] = None,
-        max_count: int = 3,
+        max_count: int = 1,
         interval_ms: int = 1000,
         min_confidence: float = 0.6,
         handler: Optional[HandleClassificationResult] = None,
@@ -193,8 +193,12 @@ class WasteClassifier:
         if callable(legacy):
             legacy(result)
 
+    def _inference_interval_seconds(self) -> float:
+        return max(0.0, self.interval_ms / 1000.0)
+
     def run(self):
         print("시스템 가동...")
+        next_inference_at = 0.0
         try:
             while True:
                 frame = self.camera.get_frame()
@@ -203,6 +207,11 @@ class WasteClassifier:
                     time.sleep(0.1)
                     continue
 
+                now = time.monotonic()
+                if now < next_inference_at:
+                    continue
+                next_inference_at = now + self._inference_interval_seconds()
+
                 label, conf = self.engine.predict(frame)
                 if self.validate(label, conf):
                     result = ClassificationResult(
@@ -210,8 +219,6 @@ class WasteClassifier:
                         confidence=conf,
                     )
                     self._dispatch_result(result)
-
-                time.sleep(self.interval_ms / 1000.0)
         finally:
             self.camera.release()
 
@@ -225,6 +232,12 @@ class WasteClassifier:
         print("테스트 모드 가동... (종료: q 또는 ESC)")
         cycle = 0
         last_pass_text = "never"
+        next_inference_at = 0.0
+        label = None
+        conf = 0.0
+        bbox = None
+        triggered = False
+        decision = "WAIT"
         try:
             while True:
                 frame = self.camera.get_frame()
@@ -234,32 +247,35 @@ class WasteClassifier:
                     continue
 
                 cycle += 1
-                before_label = self.last_label
-                label, conf, bbox = self.engine.predict_detailed(frame)
-                label = self._normalize_label(label)
-                is_valid = self.validate(label, conf)
-                triggered = False
-                decision = "WAIT"
+                now = time.monotonic()
+                if now >= next_inference_at:
+                    next_inference_at = now + self._inference_interval_seconds()
+                    before_label = self.last_label
+                    label, conf, bbox = self.engine.predict_detailed(frame)
+                    label = self._normalize_label(label)
+                    is_valid = self.validate(label, conf)
+                    triggered = False
+                    decision = "WAIT"
 
-                if not label:
-                    decision = "NO_LABEL"
-                elif conf < self.min_confidence:
-                    decision = "LOW_CONF"
-                elif label != before_label:
-                    decision = "NEW_LABEL"
-                else:
-                    decision = "COUNTING"
+                    if not label:
+                        decision = "NO_LABEL"
+                    elif conf < self.min_confidence:
+                        decision = "LOW_CONF"
+                    elif label != before_label:
+                        decision = "NEW_LABEL"
+                    else:
+                        decision = "COUNTING"
 
-                if is_valid:
-                    triggered = True
-                    decision = "PASSED"
-                    last_pass_text = time.strftime("%H:%M:%S")
-                    if dispatch_results:
-                        result = ClassificationResult(
-                            label=self.map_to_enum(label),
-                            confidence=conf,
-                        )
-                        self._dispatch_result(result)
+                    if is_valid:
+                        triggered = True
+                        decision = "PASSED"
+                        last_pass_text = time.strftime("%H:%M:%S")
+                        if dispatch_results:
+                            result = ClassificationResult(
+                                label=self.map_to_enum(label),
+                                confidence=conf,
+                            )
+                            self._dispatch_result(result)
 
                 view = frame.copy()
                 if bbox:
@@ -301,8 +317,6 @@ class WasteClassifier:
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord("q"), 27):
                     break
-
-                time.sleep(self.interval_ms / 1000.0)
         finally:
             cv2.destroyAllWindows()
             self.camera.release()

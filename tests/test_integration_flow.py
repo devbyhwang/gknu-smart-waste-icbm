@@ -134,3 +134,43 @@ def test_pipeline_e2e_failure_routes_to_handle_exception(monkeypatch):
     assert camera.released is True
     assert output.display.warning_calls == 1
     assert output.audio.effect_calls == 1
+
+
+def test_pipeline_reads_frames_continuously_and_throttles_yolo(monkeypatch):
+    inference_module = _load_inference_with_fake_ultralytics(monkeypatch)
+    monotonic_values = iter([0.0, 0.05, 0.10, 0.21])
+    monkeypatch.setattr(inference_module.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(inference_module.time, "sleep", lambda _s: None)
+
+    class Engine:
+        def __init__(self):
+            self.calls = []
+
+        def predict(self, frame):
+            self.calls.append(frame)
+            return "can", 0.95
+
+    class Handler:
+        def __init__(self):
+            self.calls = []
+
+        def handleClassification(self, result):
+            self.calls.append((result.label.value, result.confidence))
+
+    camera = _ScriptedCamera(["frame-1", "frame-2", "frame-3", "frame-4", _StopLoop()])
+    engine = Engine()
+    handler = Handler()
+    classifier = inference_module.WasteClassifier(
+        camera=camera,
+        engine=engine,
+        max_count=1,
+        interval_ms=200,
+        handler=handler,
+    )
+
+    with pytest.raises(_StopLoop):
+        classifier.run()
+
+    assert engine.calls == ["frame-1", "frame-4"]
+    assert handler.calls == [("Can", 0.95)]
+    assert camera.released is True

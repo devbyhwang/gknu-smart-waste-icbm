@@ -86,3 +86,11 @@ def test_init_camera_parameter_compatibility(monkeypatch):
     camera_obj = object()
     classifier = inference_module.WasteClassifier(camera=camera_obj, camera_mgr=None, engine=None)
     assert classifier.camera is camera_obj
+
+
+def test_classifier_defaults_to_single_detection_validation(monkeypatch):
+    inference_module = _load_inference_with_fake_ultralytics(monkeypatch)
+    classifier = inference_module.WasteClassifier(camera_mgr=None, engine=None, handler=None)
+
+    assert classifier.max_count == 1
+    assert classifier.validate("can", 0.9) is True
