@@ -215,6 +215,67 @@ def test_outputm_full_bin_uses_typed_ble_event():
     assert output.bluetooth.calls == [("BIN_FULL", "분류함 비움 필요")]
 
 
+def test_outputm_passes_four_sensor_levels_to_display_status():
+    class StatusDisplay:
+        def __init__(self):
+            self.calls = []
+
+        def showClassificationStatus(self, label, confidence=None, fill_levels=None, full_bins=None):
+            self.calls.append((label, confidence, fill_levels, full_bins))
+
+        def showWarning(self, message):
+            self.calls.append(("warning", message))
+
+    class FillSensor:
+        def __init__(self, value, threshold=0.8):
+            self.value = value
+            self.fillThreshold = threshold
+
+        def checkFillLevel(self):
+            if isinstance(self.value, Exception):
+                raise self.value
+            return self.value
+
+        def isFull(self):
+            return False
+
+    class EventBluetooth:
+        def __init__(self):
+            self.calls = []
+
+        def sendEvent(self, event, message):
+            self.calls.append((event, message))
+            return True
+
+    output = OutputM()
+    output.display = StatusDisplay()
+    output.audio = StubAudio()
+    output.servo = StubMotor()
+    output.sensor = FillSensor(0.0)
+    output.sensors = {
+        WasteType.CAN: FillSensor(0.10),
+        WasteType.PLASTIC: FillSensor(0.82),
+        WasteType.GLASS: FillSensor(RuntimeError("sensor down")),
+        WasteType.PAPER: FillSensor(1.2),
+    }
+    output.bluetooth = EventBluetooth()
+
+    output.handleClassification(ClassificationResult(WasteType.PLASTIC, 0.90))
+
+    label, confidence, fill_levels, full_bins = output.display.calls[0]
+    assert label is WasteType.PLASTIC
+    assert confidence == 0.90
+    assert fill_levels == {
+        WasteType.CAN: 0.10,
+        WasteType.PLASTIC: 0.82,
+        WasteType.GLASS: None,
+        WasteType.PAPER: 1.0,
+    }
+    assert full_bins == {WasteType.PLASTIC, WasteType.PAPER}
+    assert ("warning", "분류함이 가득 찼습니다!") in output.display.calls
+    assert output.bluetooth.calls == [("BIN_FULL", "분류함 비움 필요")]
+
+
 def test_outputm_exception_uses_output_exception_ble_event():
     class SafeDisplay:
         def showWarning(self, _message):

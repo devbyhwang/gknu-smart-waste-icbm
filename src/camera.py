@@ -47,7 +47,9 @@ class CameraManager:
                 bufsize=10**6,
             )
             if self.proc.stdout is not None:
-                os.set_blocking(self.proc.stdout.fileno(), False)
+                fileno = getattr(self.proc.stdout, "fileno", None)
+                if callable(fileno):
+                    os.set_blocking(fileno(), False)
             print(
                 f"[Camera] Started rpicam-vid stream "
                 f"({self.width}x{self.height} @ {self.fps}fps, cam={self.index})"
@@ -67,13 +69,17 @@ class CameraManager:
         if self.proc.stdout is None:
             return None
 
-        fd = self.proc.stdout.fileno()
+        fileno = getattr(self.proc.stdout, "fileno", None)
+        fd = fileno() if callable(fileno) else None
         latest_jpg = None
         deadline = time.monotonic() + 0.03
 
         while True:
             try:
-                chunk = os.read(fd, 65536)
+                if fd is None:
+                    chunk = self.proc.stdout.read(65536)
+                else:
+                    chunk = os.read(fd, 65536)
             except BlockingIOError:
                 chunk = None
 
@@ -88,7 +94,12 @@ class CameraManager:
                     continue
                 break
 
-            if chunk == b"" and self.proc.poll() is not None:
+            if chunk == b"" and latest_jpg is not None:
+                break
+
+            poll = getattr(self.proc, "poll", None)
+            process_ended = poll() is not None if callable(poll) else True
+            if chunk == b"" and process_ended:
                 # Stream ended unexpectedly; restart for next loop cycle.
                 self.release()
                 self._start_process()

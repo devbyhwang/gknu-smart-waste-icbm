@@ -1,9 +1,17 @@
 try:
     from .hardware import AudioC, BluetoothC, DisplayC, SensorC, ServoC, SoundType
-    from .models import ClassificationResult, HandleClassificationResult
+    from .models import ClassificationResult, HandleClassificationResult, WasteType
 except ImportError:
     from hardware import AudioC, BluetoothC, DisplayC, SensorC, ServoC, SoundType
-    from models import ClassificationResult, HandleClassificationResult
+    from models import ClassificationResult, HandleClassificationResult, WasteType
+
+
+BIN_SENSOR_CONFIG = {
+    WasteType.CAN: {"trig": 23, "echo": 25},
+    WasteType.PLASTIC: {"trig": 5, "echo": 6},
+    WasteType.GLASS: {"trig": 13, "echo": 19},
+    WasteType.PAPER: {"trig": 20, "echo": 21},
+}
 
 
 class OutputM(HandleClassificationResult):
@@ -11,7 +19,11 @@ class OutputM(HandleClassificationResult):
         self.display = DisplayC()
         self.audio = AudioC()
         self.servo = ServoC()
-        self.sensor = SensorC()
+        self.sensors = {
+            waste_type: SensorC(**pin_config)
+            for waste_type, pin_config in BIN_SENSOR_CONFIG.items()
+        }
+        self.sensor = self.sensors[WasteType.CAN]
         self.bluetooth = BluetoothC()
 
     def _send_bluetooth_message(self, method_name: str, legacy_name: str, message: str):
@@ -37,14 +49,63 @@ class OutputM(HandleClassificationResult):
 
         return self._send_bluetooth_message(method_name, legacy_name, message)
 
-    def checkBinFull(self):
+    def _read_sensor_fill_level(self, sensor):
+        reader = getattr(sensor, "checkFillLevel", None)
+        if not callable(reader):
+            return None
+
+        try:
+            value = reader()
+        except Exception:
+            return None
+
+        try:
+            return max(0.0, min(1.0, float(value)))
+        except (TypeError, ValueError):
+            return None
+
+    def collectFillLevels(self):
+        fill_levels = {}
+        for waste_type, sensor in getattr(self, "sensors", {}).items():
+            fill_levels[waste_type] = self._read_sensor_fill_level(sensor)
+        return fill_levels
+
+    def _sensor_threshold(self, waste_type):
+        sensor = getattr(self, "sensors", {}).get(waste_type)
+        try:
+            return float(getattr(sensor, "fillThreshold", 0.8))
+        except (TypeError, ValueError):
+            return 0.8
+
+    def _full_bins_from_fill_levels(self, fill_levels):
+        full_bins = set()
+        for waste_type, fill_level in (fill_levels or {}).items():
+            if fill_level is not None and fill_level >= self._sensor_threshold(waste_type):
+                full_bins.add(waste_type)
+        return full_bins
+
+    def checkBinFull(self, label=None, fill_levels=None):
         is_full = getattr(self.sensor, "isFull", None)
         if callable(is_full):
-            return is_full()
+            try:
+                if is_full():
+                    return True
+            except Exception:
+                pass
 
         legacy = getattr(self.sensor, "is_full", None)
         if callable(legacy):
-            return legacy()
+            try:
+                if legacy():
+                    return True
+            except Exception:
+                pass
+
+        full_bins = self._full_bins_from_fill_levels(fill_levels)
+        if label is not None and label in full_bins:
+            return True
+        if full_bins:
+            return True
 
         return False
 
@@ -72,14 +133,25 @@ class OutputM(HandleClassificationResult):
     def handleClassification(self, result: ClassificationResult):
         try:
             print(f"\n[OutputM] 결과 처리 시작: {result.label.value}")
+            fill_levels = self.collectFillLevels()
+            full_bins = self._full_bins_from_fill_levels(fill_levels)
 
-            show_category = getattr(self.display, "showCategory", None)
-            if callable(show_category):
-                show_category(result.label.value, result.label.value)
+            show_status = getattr(self.display, "showClassificationStatus", None)
+            if callable(show_status):
+                show_status(
+                    result.label,
+                    confidence=result.confidence,
+                    fill_levels=fill_levels,
+                    full_bins=full_bins,
+                )
             else:
-                legacy_show_category = getattr(self.display, "show_category", None)
-                if callable(legacy_show_category):
-                    legacy_show_category(result.label.value)
+                show_category = getattr(self.display, "showCategory", None)
+                if callable(show_category):
+                    show_category(result.label.value, result.label.value)
+                else:
+                    legacy_show_category = getattr(self.display, "show_category", None)
+                    if callable(legacy_show_category):
+                        legacy_show_category(result.label.value)
 
             play_tts = getattr(self.audio, "playTTS", None)
             if callable(play_tts):
@@ -97,7 +169,7 @@ class OutputM(HandleClassificationResult):
                 if callable(legacy_rotate_to):
                     legacy_rotate_to(90)
 
-            if self.checkBinFull():
+            if self.checkBinFull(result.label, fill_levels):
                 show_warning = getattr(self.display, "showWarning", None)
                 if callable(show_warning):
                     show_warning("분류함이 가득 찼습니다!")
