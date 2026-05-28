@@ -29,6 +29,14 @@ class StubMotor:
         self.calls.append(("rotate_to", angle))
 
 
+class ProcessMotor:
+    def __init__(self):
+        self.calls = []
+
+    def process_item(self, received_value):
+        self.calls.append(("process_item", received_value))
+
+
 class StubSensor:
     def __init__(self, full):
         self.full = full
@@ -62,6 +70,19 @@ def test_output_manager_sequence_without_full_bin():
     assert output.audio.calls == [("play_tts", "Can")]
     assert output.servo.calls == [("rotate_to", 90)]
     assert output.bluetooth.calls == []
+
+
+def test_outputm_uses_process_item_before_legacy_rotate_methods():
+    output = OutputManager()
+    output.display = StubDisplay()
+    output.audio = StubAudio()
+    output.servo = ProcessMotor()
+    output.sensor = StubSensor(full=False)
+    output.bluetooth = StubBluetooth()
+
+    output.handle_classification(ClassificationResult(WasteType.PLASTIC, 0.85))
+
+    assert output.servo.calls == [("process_item", "Plastic")]
 
 
 def test_output_manager_full_bin_branch():
@@ -187,6 +208,59 @@ def test_outputm_routes_device_exception_to_handle_exception():
     output.handleClassification(ClassificationResult(WasteType.CAN, 0.92))
 
     assert ("showCategory", "Can", "Can") in output.display.calls
+    assert ("showWarning", "출력 장치 처리 중 예외가 발생했습니다.") in output.display.calls
+    assert ("playEffect", "warning") in output.audio.calls
+    assert output.bluetooth.calls == [
+        ("sendExceptionAlert", "출력 장치 처리 중 예외가 발생했습니다."),
+    ]
+
+
+def test_outputm_routes_process_item_exception_to_handle_exception():
+    class SafeDisplay:
+        def __init__(self):
+            self.calls = []
+
+        def showCategory(self, icon, text):
+            self.calls.append(("showCategory", icon, text))
+
+        def showWarning(self, message):
+            self.calls.append(("showWarning", message))
+
+    class SafeAudio:
+        def __init__(self):
+            self.calls = []
+
+        def playTTS(self, text):
+            self.calls.append(("playTTS", text))
+
+        def playEffect(self, sound_type):
+            self.calls.append(("playEffect", sound_type.value))
+
+    class BrokenProcessMotor:
+        def process_item(self, _received_value):
+            raise RuntimeError("servo failed")
+
+    class NotFullSensor:
+        def isFull(self):
+            return False
+
+    class EventBluetooth:
+        def __init__(self):
+            self.calls = []
+
+        def sendExceptionAlert(self, message):
+            self.calls.append(("sendExceptionAlert", message))
+
+    output = OutputM()
+    output.display = SafeDisplay()
+    output.audio = SafeAudio()
+    output.servo = BrokenProcessMotor()
+    output.sensor = NotFullSensor()
+    output.bluetooth = EventBluetooth()
+
+    output.handleClassification(ClassificationResult(WasteType.PLASTIC, 0.92))
+
+    assert ("showCategory", "Plastic", "Plastic") in output.display.calls
     assert ("showWarning", "출력 장치 처리 중 예외가 발생했습니다.") in output.display.calls
     assert ("playEffect", "warning") in output.audio.calls
     assert output.bluetooth.calls == [
