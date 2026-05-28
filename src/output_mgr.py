@@ -161,13 +161,17 @@ class OutputM(HandleClassificationResult):
                 if callable(legacy_play_tts):
                     legacy_play_tts(result.label.value)
 
-            rotate_to = getattr(self.servo, "rotateTo", None)
-            if callable(rotate_to):
-                rotate_to(90)
+            process_item = getattr(self.servo, "process_item", None)
+            if callable(process_item):
+                process_item(result.label.value)
             else:
-                legacy_rotate_to = getattr(self.servo, "rotate_to", None)
-                if callable(legacy_rotate_to):
-                    legacy_rotate_to(90)
+                rotate_to = getattr(self.servo, "rotateTo", None)
+                if callable(rotate_to):
+                    rotate_to(90)
+                else:
+                    legacy_rotate_to = getattr(self.servo, "rotate_to", None)
+                    if callable(legacy_rotate_to):
+                        legacy_rotate_to(90)
 
             if self.checkBinFull(result.label, fill_levels):
                 show_warning = getattr(self.display, "showWarning", None)

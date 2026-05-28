@@ -2,6 +2,7 @@ from enum import Enum
 import os
 import subprocess
 import sys
+from time import sleep
 
 try:
     import cv2
@@ -23,11 +24,12 @@ except Exception:
     pygame = None
 
 try:
-    from gpiozero import DistanceSensor
+    from gpiozero import AngularServo, DistanceSensor
     from gpiozero.pins.lgpio import LGPIOFactory
 
     _GPIO_FACTORY = LGPIOFactory()
 except Exception:
+    AngularServo = None
     DistanceSensor = None
     _GPIO_FACTORY = None
 
@@ -347,16 +349,100 @@ class AudioC:
 
 
 class MotorC:
-    def __init__(self, pinNumber=18):
+    ANGLE_MAP = {
+        "Paper": (90, 135),
+        "Unknown": (90, 135),
+        "Can": (90, 45),
+        "Plastic": (15, 135),
+        "Glass": (15, 45),
+    }
+
+    def __init__(self, pinNumber=None, bottom_pin=18, top_pin=19, move_delay=1.0):
         self.currentAngle = 0
-        self.pinNumber = pinNumber
+        self.bottom_pin = pinNumber if pinNumber is not None else bottom_pin
+        self.top_pin = top_pin
+        self.pinNumber = self.bottom_pin
+        self.move_delay = move_delay
+        self.bottom_servo = None
+        self.top_servo = None
+        self.bottom_angle = 0
+        self.top_angle = 90
+        self.command_log = []
+
+        if AngularServo is not None and _GPIO_FACTORY is not None:
+            try:
+                self.bottom_servo = AngularServo(
+                    self.bottom_pin,
+                    min_angle=0,
+                    max_angle=180,
+                    min_pulse_width=0.0005,
+                    max_pulse_width=0.0025,
+                    pin_factory=_GPIO_FACTORY,
+                )
+                self.top_servo = AngularServo(
+                    self.top_pin,
+                    min_angle=0,
+                    max_angle=180,
+                    min_pulse_width=0.0005,
+                    max_pulse_width=0.0025,
+                    pin_factory=_GPIO_FACTORY,
+                )
+            except Exception:
+                self.bottom_servo = None
+                self.top_servo = None
+
+        self.reset_motors()
+
+    def _sleep_after_move(self):
+        if self.move_delay and (self.bottom_servo is not None or self.top_servo is not None):
+            sleep(self.move_delay)
+
+    def _set_bottom_angle(self, angle):
+        self.bottom_angle = angle
+        self.currentAngle = angle
+        self.command_log.append(("bottom", angle))
+        if self.bottom_servo is not None:
+            self.bottom_servo.angle = angle
+
+    def _set_top_angle(self, angle):
+        self.top_angle = angle
+        self.command_log.append(("top", angle))
+        if self.top_servo is not None:
+            self.top_servo.angle = angle
+
+    def _category_value(self, received_value):
+        value = getattr(received_value, "value", received_value)
+        if value in self.ANGLE_MAP:
+            return value
+        return "Unknown"
+
+    def reset_motors(self):
+        self._set_bottom_angle(0)
+        self._set_top_angle(90)
+        self._sleep_after_move()
+
+    def process_item(self, received_value):
+        category = self._category_value(received_value)
+        bottom_angle, top_angle = self.ANGLE_MAP.get(category, self.ANGLE_MAP["Unknown"])
+
+        print(f"\n[Motor] '{category}' 분류를 시작합니다.")
+        print(f"[Motor] 하단 모터 {bottom_angle}도로 이동")
+        self._set_bottom_angle(bottom_angle)
+        self._sleep_after_move()
+
+        print(f"[Motor] 상단 모터 {top_angle}도로 이동")
+        self._set_top_angle(top_angle)
+        self._sleep_after_move()
+
+        print("[Motor] 모터 초기화: 하단 0도, 상단 90도")
+        self.reset_motors()
+        print("[Motor] 분류 완료")
 
     def resetPosition(self):
-        self.rotateTo(0)
+        self.reset_motors()
 
     def rotateTo(self, angle):
-        self.currentAngle = angle
-        self.sendPWM(angle)
+        self._set_bottom_angle(angle)
         print(f"[Motor] {angle}도로 회전하여 분류")
 
     def sendPWM(self, pulseWidth):

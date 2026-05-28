@@ -62,6 +62,43 @@ def test_motor_and_servo_alias():
     assert ServoC is MotorC
 
 
+def test_motor_defaults_to_two_servo_pr23_configuration():
+    motor = MotorC(move_delay=0)
+    assert motor.bottom_pin == 18
+    assert motor.top_pin == 19
+    assert motor.bottom_angle == 0
+    assert motor.top_angle == 90
+    assert ServoC is MotorC
+
+
+def test_motor_process_item_uses_pr23_angle_map_and_resets():
+    motor = MotorC(move_delay=0)
+    motor.command_log.clear()
+
+    motor.process_item("Plastic")
+
+    assert motor.command_log == [
+        ("bottom", 15),
+        ("top", 135),
+        ("bottom", 0),
+        ("top", 90),
+    ]
+    assert motor.bottom_angle == 0
+    assert motor.top_angle == 90
+    assert motor.currentAngle == 0
+
+
+def test_motor_process_item_unknown_uses_unknown_angle_map():
+    motor = MotorC(move_delay=0)
+    motor.command_log.clear()
+
+    motor.process_item("Battery")
+
+    assert motor.command_log[:2] == [("bottom", 90), ("top", 135)]
+    assert motor.bottom_angle == 0
+    assert motor.top_angle == 90
+
+
 def test_sensor_fill_threshold_and_alias():
     sensor = SensorC(fillThreshold=0.8)
     assert sensor.fillThreshold == 0.8
