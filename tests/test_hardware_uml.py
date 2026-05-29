@@ -90,7 +90,7 @@ def test_motor_defaults_to_two_servo_pr23_configuration():
     assert ServoC is MotorC
 
 
-def test_motor_servo_starts_uncontrolled_and_detaches_after_reset(monkeypatch):
+def test_motor_servo_starts_uncontrolled_and_keeps_handles_after_reset(monkeypatch):
     created = []
 
     class FakeServo:
@@ -98,11 +98,7 @@ def test_motor_servo_starts_uncontrolled_and_detaches_after_reset(monkeypatch):
             self.pin = pin
             self.kwargs = kwargs
             self.angle = None
-            self.detached = 0
             created.append(self)
-
-        def detach(self):
-            self.detached += 1
 
     monkeypatch.setattr(hardware, "AngularServo", FakeServo)
     monkeypatch.setattr(hardware, "_GPIO_FACTORY", object())
@@ -113,7 +109,8 @@ def test_motor_servo_starts_uncontrolled_and_detaches_after_reset(monkeypatch):
     assert [servo.kwargs["initial_angle"] for servo in created] == [None, None]
     assert created[0].angle == 0
     assert created[1].angle == 90
-    assert [servo.detached for servo in created] == [1, 1]
+    assert motor.bottom_servo is created[0]
+    assert motor.top_servo is created[1]
     assert motor.command_log == [("bottom", 0), ("top", 90)]
 
 
@@ -134,7 +131,7 @@ def test_motor_process_item_uses_pr23_angle_map_and_resets():
     assert motor.currentAngle == 0
 
 
-def test_motor_process_item_recreates_and_closes_servo_handles(monkeypatch):
+def test_motor_process_item_reuses_persistent_servo_handles(monkeypatch):
     created = []
 
     class FakeServo:
@@ -142,26 +139,22 @@ def test_motor_process_item_recreates_and_closes_servo_handles(monkeypatch):
             self.pin = pin
             self.kwargs = kwargs
             self.angle = None
-            self.closed = 0
             created.append(self)
-
-        def close(self):
-            self.closed += 1
 
     monkeypatch.setattr(hardware, "AngularServo", FakeServo)
     monkeypatch.setattr(hardware, "_GPIO_FACTORY", object())
 
     motor = MotorC(move_delay=0)
-    created.clear()
+    bottom_servo, top_servo = created
 
     motor.process_item("Can")
 
     assert [servo.pin for servo in created] == [18, 19]
-    assert [servo.kwargs["initial_angle"] for servo in created] == [0, 90]
-    assert [servo.angle for servo in created] == [0, 90]
-    assert [servo.closed for servo in created] == [1, 1]
-    assert motor.bottom_servo is None
-    assert motor.top_servo is None
+    assert [servo.kwargs["initial_angle"] for servo in created] == [None, None]
+    assert bottom_servo.angle == 0
+    assert top_servo.angle == 90
+    assert motor.bottom_servo is bottom_servo
+    assert motor.top_servo is top_servo
 
 
 def test_motor_process_item_unknown_uses_unknown_angle_map():
