@@ -221,13 +221,13 @@ class WasteClassifier:
             while True:
                 frame = self.camera.get_frame()
                 if frame is None:
-                    print("[Warning] 프레임을 읽지 못했습니다. 다시 시도합니다...")
-                    time.sleep(0.1)
+                    time.sleep(0.01)
                     continue
 
                 now = time.monotonic()
                 self._refresh_sensor_snapshot_if_due(now)
                 if now < next_inference_at:
+                    time.sleep(0.001)
                     continue
                 next_inference_at = now + self._inference_interval_seconds()
 
@@ -261,8 +261,7 @@ class WasteClassifier:
             while True:
                 frame = self.camera.get_frame()
                 if frame is None:
-                    print("[Warning] 프레임을 읽지 못했습니다. 다시 시도합니다...")
-                    time.sleep(0.1)
+                    time.sleep(0.01)
                     continue
 
                 cycle += 1

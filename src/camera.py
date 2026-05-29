@@ -72,7 +72,11 @@ class CameraManager:
         fileno = getattr(self.proc.stdout, "fileno", None)
         fd = fileno() if callable(fileno) else None
         latest_jpg = None
-        deadline = time.monotonic() + 0.03
+        # Wait at least ~2 frame periods (bounded) so low-fps streams are not
+        # treated as dropped frames.
+        frame_period = 1.0 / max(1, self.fps)
+        wait_timeout = min(0.25, max(0.05, frame_period * 2.0))
+        deadline = time.monotonic() + wait_timeout
 
         while True:
             try:
