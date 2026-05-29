@@ -530,7 +530,6 @@ class MotorC:
         self._set_bottom_angle(0)
         self._set_top_angle(90)
         self._sleep_after_move()
-        self._detach_motors()
 
     def process_item(self, received_value):
         category = self._category_value(received_value)
