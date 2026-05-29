@@ -56,6 +56,9 @@ def main(argv=None):
         connect_bluetooth = getattr(handler.bluetooth, "connect", None)
         if callable(connect_bluetooth):
             connect_bluetooth()
+        start_sensor_display = getattr(handler, "startSensorDisplayUpdates", None)
+        if callable(start_sensor_display):
+            start_sensor_display()
 
     cam = CameraManager(
         index=args.camera_index,
@@ -83,13 +86,19 @@ def main(argv=None):
         handler=handler,
         img_dir=img_dir,
     )
-    if args.test_mode:
-        classifier.run_test_mode(
-            dispatch_results=args.test_dispatch,
-            window_name=args.window_name,
-        )
-    else:
-        classifier.run()
+    try:
+        if args.test_mode:
+            classifier.run_test_mode(
+                dispatch_results=args.test_dispatch,
+                window_name=args.window_name,
+            )
+        else:
+            classifier.run()
+    finally:
+        if handler is not None:
+            stop_sensor_display = getattr(handler, "stopSensorDisplayUpdates", None)
+            if callable(stop_sensor_display):
+                stop_sensor_display()
 
 
 if __name__ == "__main__":

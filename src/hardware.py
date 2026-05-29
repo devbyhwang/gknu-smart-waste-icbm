@@ -323,6 +323,19 @@ class DisplayC:
         print(f"[Display] 분류 결과 '{self.selected_label}' / confidence={confidence} / fill={self.fill_levels}")
         self.refreshScreen()
 
+    def showSensorStatus(self, fill_levels=None, full_bins=None, message=None):
+        self.selected_label = None
+        self.confidence = None
+        self.fill_levels = self._normalize_fill_levels(fill_levels)
+        self.full_bins = {
+            normalized
+            for normalized in (self._normalize_bin_key(item) for item in (full_bins or []))
+            if normalized
+        }
+        self.message = message or "분류함 상태"
+        print(f"[Display] 센서 상태 갱신 / fill={self.fill_levels} / full={sorted(self.full_bins)}")
+        self.refreshScreen()
+
     def showCategory(self, icon, text, confidence=None, fill_levels=None, full_bins=None):
         if confidence is not None or fill_levels is not None or full_bins is not None:
             return self.showClassificationStatus(text or icon, confidence, fill_levels, full_bins)
