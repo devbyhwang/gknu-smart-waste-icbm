@@ -94,6 +94,8 @@ class WasteClassifier:
         self.last_label = None
         self.consecutive_count = 0
         self._overlay_font_cache = {}
+        self._sensor_refresh_interval_sec = 5.0
+        self._next_sensor_refresh_at = 0.0
 
     def _normalize_label(self, label: Optional[str]) -> Optional[str]:
         if label is None:
@@ -196,6 +198,22 @@ class WasteClassifier:
     def _inference_interval_seconds(self) -> float:
         return max(0.0, self.interval_ms / 1000.0)
 
+    def _refresh_sensor_snapshot_if_due(self, now: float):
+        if now < self._next_sensor_refresh_at:
+            return
+
+        self._next_sensor_refresh_at = now + self._sensor_refresh_interval_sec
+        if not self.handler:
+            return
+
+        refresh = getattr(self.handler, "refreshSensorStatus", None)
+        if callable(refresh):
+            try:
+                refresh()
+            except Exception:
+                # 센서 갱신 실패가 인식 루프를 멈추지 않도록 무시.
+                pass
+
     def run(self):
         print("시스템 가동...")
         next_inference_at = 0.0
@@ -208,6 +226,7 @@ class WasteClassifier:
                     continue
 
                 now = time.monotonic()
+                self._refresh_sensor_snapshot_if_due(now)
                 if now < next_inference_at:
                     continue
                 next_inference_at = now + self._inference_interval_seconds()
@@ -248,6 +267,7 @@ class WasteClassifier:
 
                 cycle += 1
                 now = time.monotonic()
+                self._refresh_sensor_snapshot_if_due(now)
                 if now >= next_inference_at:
                     next_inference_at = now + self._inference_interval_seconds()
                     before_label = self.last_label
