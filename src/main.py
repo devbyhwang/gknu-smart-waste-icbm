@@ -52,7 +52,7 @@ def main(argv=None):
 
     handler = None
     if not args.test_mode or args.test_dispatch:
-        handler = OutputM()
+        handler = OutputM(enable_sensor_polling=True)
         connect_bluetooth = getattr(handler.bluetooth, "connect", None)
         if callable(connect_bluetooth):
             connect_bluetooth()
@@ -83,13 +83,18 @@ def main(argv=None):
         handler=handler,
         img_dir=img_dir,
     )
-    if args.test_mode:
-        classifier.run_test_mode(
-            dispatch_results=args.test_dispatch,
-            window_name=args.window_name,
-        )
-    else:
-        classifier.run()
+    try:
+        if args.test_mode:
+            classifier.run_test_mode(
+                dispatch_results=args.test_dispatch,
+                window_name=args.window_name,
+            )
+        else:
+            classifier.run()
+    finally:
+        stop_polling = getattr(handler, "stop_sensor_polling", None)
+        if callable(stop_polling):
+            stop_polling()
 
 
 if __name__ == "__main__":

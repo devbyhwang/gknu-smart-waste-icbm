@@ -350,6 +350,17 @@ class DisplayC:
         print(f"[Display] 경고: {message} / full={sorted(self.full_bins)}")
         self.refreshScreen()
 
+    def showSensorSnapshot(self, fill_levels=None, full_bins=None, message="인식 대기"):
+        self.fill_levels = self._normalize_fill_levels(fill_levels)
+        self.full_bins = {
+            normalized
+            for normalized in (self._normalize_bin_key(item) for item in (full_bins or []))
+            if normalized
+        }
+        self.message = message or "인식 대기"
+        print(f"[Display] 센서 스냅샷 갱신 / fill={self.fill_levels}")
+        self.refreshScreen()
+
     def refreshScreen(self):
         print("[Display] 화면 갱신")
         self._show_frame()

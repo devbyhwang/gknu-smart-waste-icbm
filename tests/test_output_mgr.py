@@ -465,3 +465,58 @@ def test_outputm_ble_failure_does_not_break_exception_flow():
 
     assert ("showWarning", "출력 장치 처리 중 예외가 발생했습니다.") in output.display.calls
     assert ("playEffect", "warning") in output.audio.calls
+
+
+def test_outputm_refresh_sensor_status_updates_four_bins():
+    class SnapshotDisplay:
+        def __init__(self):
+            self.calls = []
+
+        def showSensorSnapshot(self, fill_levels=None, full_bins=None, message=None):
+            self.calls.append((fill_levels, full_bins, message))
+
+    class FillSensor:
+        def __init__(self, value, threshold=0.8):
+            self.value = value
+            self.fillThreshold = threshold
+
+        def checkFillLevel(self):
+            return self.value
+
+        def isFull(self):
+            return self.value >= self.fillThreshold
+
+    output = OutputM()
+    output.display = SnapshotDisplay()
+    output.sensors = {
+        WasteType.CAN: FillSensor(0.10),
+        WasteType.PLASTIC: FillSensor(0.40),
+        WasteType.GLASS: FillSensor(0.85),
+        WasteType.PAPER: FillSensor(0.95),
+    }
+
+    fill_levels, full_bins = output.refreshSensorStatus()
+
+    assert fill_levels == {
+        WasteType.CAN: 0.10,
+        WasteType.PLASTIC: 0.40,
+        WasteType.GLASS: 0.85,
+        WasteType.PAPER: 0.95,
+    }
+    assert full_bins == {WasteType.GLASS, WasteType.PAPER}
+    assert output.display.calls == [(fill_levels, full_bins, "인식 대기")]
+
+
+def test_outputm_sensor_polling_start_stop_is_idempotent():
+    class SnapshotDisplay:
+        def showSensorSnapshot(self, fill_levels=None, full_bins=None, message=None):
+            return None
+
+    output = OutputM(sensor_refresh_interval_sec=0.5)
+    output.display = SnapshotDisplay()
+
+    assert output.start_sensor_polling() is True
+    assert output.start_sensor_polling() is False
+
+    output.stop_sensor_polling()
+    assert output._polling_thread is None
