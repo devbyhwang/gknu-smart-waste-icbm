@@ -1,5 +1,5 @@
 from src.models import ClassificationResult, WasteType
-from src.output_mgr import BIN_SENSOR_CONFIG, OutputM, OutputManager
+from src.output_mgr import BIN_FULL_WARNING, BIN_SENSOR_CONFIG, OutputM, OutputManager
 
 
 class StubDisplay:
@@ -104,10 +104,9 @@ def test_output_manager_full_bin_branch():
 
     output.handle_classification(ClassificationResult(WasteType.PAPER, 0.90))
 
-    assert ("show_category", "Paper") in output.display.calls
-    assert ("show_warning", "분류함이 가득 찼습니다!") in output.display.calls
-    assert output.audio.calls == [("play_tts", "Paper")]
-    assert output.servo.calls == [("rotate_to", 90)]
+    assert output.display.calls == [("show_warning", BIN_FULL_WARNING)]
+    assert output.audio.calls == []
+    assert output.servo.calls == []
     assert output.bluetooth.calls == [("send_alert", "분류함 비움 필요")]
 
 
@@ -159,10 +158,9 @@ def test_outputm_camel_case_path():
 
     output.handleClassification(ClassificationResult(WasteType.GLASS, 0.95))
 
-    assert output.display.calls[0] == ("showCategory", "Glass", "Glass")
-    assert ("showWarning", "분류함이 가득 찼습니다!") in output.display.calls
-    assert output.audio.calls == [("playTTS", "Glass")]
-    assert output.servo.calls == [("rotateTo", 90)]
+    assert output.display.calls == [("showWarning", BIN_FULL_WARNING)]
+    assert output.audio.calls == []
+    assert output.servo.calls == []
     assert output.bluetooth.calls == [("sendAlert", "분류함 비움 필요")]
 
 
@@ -355,7 +353,58 @@ def test_outputm_passes_four_sensor_levels_to_display_status():
         WasteType.PAPER: 1.0,
     }
     assert full_bins == {WasteType.PLASTIC, WasteType.PAPER}
-    assert ("warning", "분류함이 가득 찼습니다!") in output.display.calls
+    assert ("warning", BIN_FULL_WARNING) in output.display.calls
+    assert output.audio.calls == []
+    assert output.servo.calls == []
+    assert output.bluetooth.calls == [("BIN_FULL", "분류함 비움 필요")]
+
+
+def test_outputm_alerts_when_any_sensor_reports_full_without_fill_level():
+    class StatusDisplay:
+        def __init__(self):
+            self.calls = []
+
+        def showClassificationStatus(self, label, confidence=None, fill_levels=None, full_bins=None):
+            self.calls.append((label, confidence, fill_levels, full_bins))
+
+        def showWarning(self, message):
+            self.calls.append(("warning", message))
+
+    class FullOnlySensor:
+        def __init__(self, full):
+            self.full = full
+
+        def isFull(self):
+            return self.full
+
+    class EventBluetooth:
+        def __init__(self):
+            self.calls = []
+
+        def sendEvent(self, event, message):
+            self.calls.append((event, message))
+            return True
+
+    output = OutputM()
+    output.display = StatusDisplay()
+    output.audio = StubAudio()
+    output.servo = StubMotor()
+    output.sensor = FullOnlySensor(False)
+    output.sensors = {
+        WasteType.CAN: FullOnlySensor(False),
+        WasteType.PLASTIC: FullOnlySensor(True),
+        WasteType.GLASS: FullOnlySensor(False),
+        WasteType.PAPER: FullOnlySensor(False),
+    }
+    output.bluetooth = EventBluetooth()
+
+    output.handleClassification(ClassificationResult(WasteType.CAN, 0.90))
+
+    _label, _confidence, _fill_levels, full_bins = output.display.calls[0]
+    assert full_bins == {WasteType.PLASTIC}
+    assert ("warning", BIN_FULL_WARNING) in output.display.calls
+    assert output.audio.calls == []
+    assert output.servo.calls == []
     assert output.bluetooth.calls == [("BIN_FULL", "분류함 비움 필요")]
 
 
