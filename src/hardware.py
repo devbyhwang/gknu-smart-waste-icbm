@@ -475,6 +475,8 @@ class MotorC:
             return None
 
     def _attach_motors(self, initial_bottom=None, initial_top=None):
+        if self.bottom_servo is not None or self.top_servo is not None:
+            self._detach_motors()
         self.bottom_servo = self._create_servo(self.bottom_pin, initial_bottom)
         self.top_servo = self._create_servo(self.top_pin, initial_top)
 

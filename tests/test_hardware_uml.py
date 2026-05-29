@@ -149,10 +149,12 @@ def test_motor_process_item_recreates_and_closes_servo_handles(monkeypatch):
     monkeypatch.setattr(hardware, "_GPIO_FACTORY", object())
 
     motor = MotorC(move_delay=0)
+    initial_servos = list(created)
     created.clear()
 
     motor.process_item("Can")
 
+    assert [servo.closed for servo in initial_servos] == [1, 1]
     assert [servo.pin for servo in created] == [18, 19]
     assert [servo.kwargs["initial_angle"] for servo in created] == [0, 90]
     assert [servo.angle for servo in created] == [0, 90]
