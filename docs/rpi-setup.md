@@ -49,6 +49,24 @@ python -m src.main --test-mode --test-dispatch
 
 Python UI 안내창은 현장 사용자에게 분류 결과와 쓰레기 적재량을 보여주는 로컬 화면입니다.
 
+- 한글 상단 문구가 네모/깨진 글자로 보이면 한글 폰트가 없는 상태입니다.
+  - DisplayC는 OpenCV 기본 폰트가 아니라 Pillow + 시스템 한글 폰트로 한글을 렌더링합니다.
+  - Raspberry Pi OS 기본 폰트인 DejaVu에는 한글 글리프가 없어 사용할 수 없습니다.
+  - 아래 패키지를 설치하세요.
+
+```bash
+sudo apt update
+sudo apt install -y fonts-nanum fonts-noto-cjk
+fc-cache -f
+```
+
+- 별도 한글 폰트 파일을 쓰려면 실행 전에 경로를 지정할 수 있습니다.
+
+```bash
+export SMART_BIN_KOREAN_FONT=/path/to/KoreanFont.ttf
+python -m src.main
+```
+
 - Desktop 환경에서 실행하는 경우:
   - HDMI/터치 디스플레이 연결 확인
   - Raspberry Pi OS Desktop 로그인 후 터미널에서 실행

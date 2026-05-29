@@ -1,4 +1,5 @@
 from enum import Enum
+import glob
 import os
 import subprocess
 import sys
@@ -60,6 +61,7 @@ class DisplayC:
         self.message = "인식 대기"
         self._asset_cache = {}
         self._font_cache = {}
+        self._missing_korean_font_warned = False
         self._window_ready = False
         self.enable_window = self._should_enable_window(enable_window)
 
@@ -157,35 +159,81 @@ class DisplayC:
         cv2.rectangle(canvas, (x + 4, top), (x + width - 4, y + height - 4), fill_color, -1)
         cv2.putText(canvas, f"{int(round(fill * 100))}%", (x + 18, y + height + 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, fill_color, 2)
 
-    def _get_text_font(self, font_size):
+    def _contains_hangul(self, text):
+        return any("\uac00" <= char <= "\ud7a3" for char in str(text or ""))
+
+    def _font_candidates(self, needs_korean):
+        explicit_font = os.environ.get("SMART_BIN_KOREAN_FONT") or os.environ.get("SMART_BIN_FONT")
+        if explicit_font:
+            yield explicit_font
+
+        korean_candidates = [
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+            "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+            "/usr/share/fonts/truetype/nanum/NanumGothicCoding.ttf",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf",
+            "/usr/share/fonts/opentype/noto/NotoSansCJKkr-Bold.otf",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/unfonts-core/UnDotum.ttf",
+            "/usr/share/fonts/truetype/baekmuk/dotum.ttf",
+            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+            "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+        ]
+        for font_path in korean_candidates:
+            yield font_path
+
+        for pattern in (
+            "/usr/share/fonts/**/*Nanum*.ttf",
+            "/usr/share/fonts/**/*Nanum*.otf",
+            "/usr/share/fonts/**/*NotoSansCJK*.ttc",
+            "/usr/share/fonts/**/*NotoSansCJK*.otf",
+            "/usr/share/fonts/**/*NotoSerifCJK*.ttc",
+            "/usr/share/fonts/**/*NotoSerifCJK*.otf",
+            "/usr/share/fonts/**/*UnDotum*.ttf",
+            "/usr/share/fonts/**/*Baekmuk*.ttf",
+        ):
+            yield from glob.iglob(pattern, recursive=True)
+
+        if not needs_korean:
+            yield "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+    def _get_text_font(self, font_size, text=""):
         try:
             from PIL import ImageFont
         except Exception:
             return None
 
-        cached = self._font_cache.get(font_size)
+        needs_korean = self._contains_hangul(text)
+        cache_key = (font_size, needs_korean)
+        cached = self._font_cache.get(cache_key)
         if cached is not None:
             return cached
 
-        font_candidates = [
-            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-            "/usr/share/fonts/truetype/nanum/NanumGothicCoding.ttf",
-            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-            "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        ]
-        for font_path in font_candidates:
+        seen = set()
+        for font_path in self._font_candidates(needs_korean):
+            if font_path in seen:
+                continue
+            seen.add(font_path)
             if os.path.exists(font_path):
                 try:
                     font = ImageFont.truetype(font_path, font_size)
-                    self._font_cache[font_size] = font
+                    self._font_cache[cache_key] = font
                     return font
                 except Exception:
                     continue
+        if needs_korean and not self._missing_korean_font_warned:
+            print(
+                "[Display] 한글 폰트를 찾지 못했습니다. Raspberry Pi에서 "
+                "'sudo apt install fonts-nanum fonts-noto-cjk'를 실행하거나 "
+                "SMART_BIN_KOREAN_FONT로 한글 TTF/TTC 경로를 지정하세요."
+            )
+            self._missing_korean_font_warned = True
         return None
 
     def _draw_text(self, canvas, text, x, y, font_size, color, thickness=2):
-        font = self._get_text_font(font_size)
+        font = self._get_text_font(font_size, text)
         if font is None:
             safe_text = text.encode("ascii", "replace").decode("ascii")
             cv2.putText(canvas, safe_text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font_size / 36, color, thickness)
@@ -289,6 +337,19 @@ class DisplayC:
         print(f"[Display] 경고: {message}")
         self.refreshScreen()
 
+    def showBinFullWarning(self, message, fill_levels=None, full_bins=None):
+        self.selected_label = None
+        self.confidence = None
+        self.fill_levels = self._normalize_fill_levels(fill_levels)
+        self.full_bins = {
+            normalized
+            for normalized in (self._normalize_bin_key(item) for item in (full_bins or []))
+            if normalized
+        }
+        self.message = message
+        print(f"[Display] 경고: {message} / full={sorted(self.full_bins)}")
+        self.refreshScreen()
+
     def refreshScreen(self):
         print("[Display] 화면 갱신")
         self._show_frame()
@@ -377,6 +438,7 @@ class MotorC:
                     max_angle=180,
                     min_pulse_width=0.0005,
                     max_pulse_width=0.0025,
+                    initial_angle=None,
                     pin_factory=_GPIO_FACTORY,
                 )
                 self.top_servo = AngularServo(
@@ -385,6 +447,7 @@ class MotorC:
                     max_angle=180,
                     min_pulse_width=0.0005,
                     max_pulse_width=0.0025,
+                    initial_angle=None,
                     pin_factory=_GPIO_FACTORY,
                 )
             except Exception:
@@ -396,6 +459,25 @@ class MotorC:
     def _sleep_after_move(self):
         if self.move_delay and (self.bottom_servo is not None or self.top_servo is not None):
             sleep(self.move_delay)
+
+    def _detach_servo(self, servo):
+        if servo is None:
+            return
+        detach = getattr(servo, "detach", None)
+        if callable(detach):
+            try:
+                detach()
+                return
+            except Exception:
+                pass
+        try:
+            servo.value = None
+        except Exception:
+            pass
+
+    def _detach_motors(self):
+        self._detach_servo(self.bottom_servo)
+        self._detach_servo(self.top_servo)
 
     def _set_bottom_angle(self, angle):
         self.bottom_angle = angle
@@ -420,6 +502,7 @@ class MotorC:
         self._set_bottom_angle(0)
         self._set_top_angle(90)
         self._sleep_after_move()
+        self._detach_motors()
 
     def process_item(self, received_value):
         category = self._category_value(received_value)

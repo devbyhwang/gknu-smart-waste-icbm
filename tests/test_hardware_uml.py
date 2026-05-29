@@ -1,3 +1,4 @@
+import src.hardware as hardware
 from src.hardware import BluetoothC, DisplayC, MobileApp, MotorC, SensorC, ServoC
 from src.models import WasteType
 
@@ -53,6 +54,24 @@ def test_display_clamps_bad_fill_values_without_breaking_render():
     assert display.render_frame() is not None
 
 
+def test_display_uses_only_korean_font_candidates_for_hangul_text():
+    display = DisplayC(enable_window=False)
+
+    candidates = list(display._font_candidates(display._contains_hangul("분류 결과 표시")))
+
+    assert "/usr/share/fonts/truetype/nanum/NanumGothic.ttf" in candidates
+    assert "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc" in candidates
+    assert "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" not in candidates
+
+
+def test_display_allows_dejavu_fallback_for_ascii_text():
+    display = DisplayC(enable_window=False)
+
+    candidates = list(display._font_candidates(display._contains_hangul("Display ready")))
+
+    assert "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" in candidates
+
+
 def test_motor_and_servo_alias():
     motor = MotorC(pinNumber=12)
     motor.rotateTo(90)
@@ -69,6 +88,33 @@ def test_motor_defaults_to_two_servo_pr23_configuration():
     assert motor.bottom_angle == 0
     assert motor.top_angle == 90
     assert ServoC is MotorC
+
+
+def test_motor_servo_starts_uncontrolled_and_detaches_after_reset(monkeypatch):
+    created = []
+
+    class FakeServo:
+        def __init__(self, pin, **kwargs):
+            self.pin = pin
+            self.kwargs = kwargs
+            self.angle = None
+            self.detached = 0
+            created.append(self)
+
+        def detach(self):
+            self.detached += 1
+
+    monkeypatch.setattr(hardware, "AngularServo", FakeServo)
+    monkeypatch.setattr(hardware, "_GPIO_FACTORY", object())
+
+    motor = MotorC(move_delay=0)
+
+    assert [servo.pin for servo in created] == [18, 19]
+    assert [servo.kwargs["initial_angle"] for servo in created] == [None, None]
+    assert created[0].angle == 0
+    assert created[1].angle == 90
+    assert [servo.detached for servo in created] == [1, 1]
+    assert motor.command_log == [("bottom", 0), ("top", 90)]
 
 
 def test_motor_process_item_uses_pr23_angle_map_and_resets():
