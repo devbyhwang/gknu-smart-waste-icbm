@@ -431,40 +431,10 @@ class MotorC:
         self.bottom_angle = 0
         self.top_angle = 90
         self.command_log = []
-        self.hardware_enabled = False
+        self.hardware_enabled = AngularServo is not None and _GPIO_FACTORY is not None
         self.hardware_error = _GPIO_INIT_ERROR
 
-        if AngularServo is not None and _GPIO_FACTORY is not None:
-            try:
-                self.bottom_servo = AngularServo(
-                    self.bottom_pin,
-                    min_angle=0,
-                    max_angle=180,
-                    min_pulse_width=0.0005,
-                    max_pulse_width=0.0025,
-                    initial_angle=None,
-                    pin_factory=_GPIO_FACTORY,
-                )
-                self.top_servo = AngularServo(
-                    self.top_pin,
-                    min_angle=0,
-                    max_angle=180,
-                    min_pulse_width=0.0005,
-                    max_pulse_width=0.0025,
-                    initial_angle=None,
-                    pin_factory=_GPIO_FACTORY,
-                )
-                self.hardware_enabled = True
-                self.hardware_error = None
-            except Exception as exc:
-                self.bottom_servo = None
-                self.top_servo = None
-                self.hardware_error = exc
-                print(
-                    "[Motor] 경고: 서보 GPIO 초기화 실패. "
-                    f"핀/권한/lgpio 설치 상태를 확인하세요. 원인={exc!r}"
-                )
-        else:
+        if not self.hardware_enabled:
             print(
                 "[Motor] 경고: gpiozero/lgpio를 사용할 수 없어 실제 모터가 동작하지 않습니다. "
                 f"원인={self.hardware_error!r}"
@@ -472,13 +442,52 @@ class MotorC:
 
         self.reset_motors()
 
-    def _sleep_after_move(self):
-        if self.move_delay and (self.bottom_servo is not None or self.top_servo is not None):
+    def _sleep_after_move(self, force=False):
+        if self.move_delay and (force or self.bottom_servo is not None or self.top_servo is not None):
             sleep(self.move_delay)
+
+    def _create_servo(self, pin, initial_angle=None):
+        if AngularServo is None or _GPIO_FACTORY is None:
+            self.hardware_enabled = False
+            self.hardware_error = _GPIO_INIT_ERROR
+            return None
+
+        try:
+            servo = AngularServo(
+                pin,
+                min_angle=0,
+                max_angle=180,
+                min_pulse_width=0.0005,
+                max_pulse_width=0.0025,
+                initial_angle=initial_angle,
+                pin_factory=_GPIO_FACTORY,
+            )
+            self.hardware_enabled = True
+            self.hardware_error = None
+            return servo
+        except Exception as exc:
+            self.hardware_enabled = False
+            self.hardware_error = exc
+            print(
+                "[Motor] 경고: 서보 GPIO 초기화 실패. "
+                f"pin={pin}, 원인={exc!r}"
+            )
+            return None
+
+    def _attach_motors(self, initial_bottom=None, initial_top=None):
+        self.bottom_servo = self._create_servo(self.bottom_pin, initial_bottom)
+        self.top_servo = self._create_servo(self.top_pin, initial_top)
 
     def _detach_servo(self, servo):
         if servo is None:
             return
+        close = getattr(servo, "close", None)
+        if callable(close):
+            try:
+                close()
+                return
+            except Exception:
+                pass
         detach = getattr(servo, "detach", None)
         if callable(detach):
             try:
@@ -494,6 +503,8 @@ class MotorC:
     def _detach_motors(self):
         self._detach_servo(self.bottom_servo)
         self._detach_servo(self.top_servo)
+        self.bottom_servo = None
+        self.top_servo = None
 
     def _set_bottom_angle(self, angle):
         self.bottom_angle = angle
@@ -515,6 +526,7 @@ class MotorC:
         return "Unknown"
 
     def reset_motors(self):
+        self._attach_motors()
         self._set_bottom_angle(0)
         self._set_top_angle(90)
         self._sleep_after_move()
@@ -531,6 +543,7 @@ class MotorC:
         )
         if not self.hardware_enabled:
             print(f"[Motor] 실제 GPIO 출력 없음: {self.hardware_error!r}")
+        self._attach_motors(initial_bottom=0, initial_top=90)
         print(f"[Motor] 하단 모터 {bottom_angle}도로 이동")
         self._set_bottom_angle(bottom_angle)
         self._sleep_after_move()
@@ -540,14 +553,20 @@ class MotorC:
         self._sleep_after_move()
 
         print("[Motor] 모터 초기화: 하단 0도, 상단 90도")
-        self.reset_motors()
+        self._set_bottom_angle(0)
+        self._set_top_angle(90)
+        self._sleep_after_move()
+        self._detach_motors()
         print("[Motor] 분류 완료")
 
     def resetPosition(self):
         self.reset_motors()
 
     def rotateTo(self, angle):
+        self._attach_motors()
         self._set_bottom_angle(angle)
+        self._sleep_after_move()
+        self._detach_motors()
         print(f"[Motor] {angle}도로 회전하여 분류")
 
     def sendPWM(self, pulseWidth):
