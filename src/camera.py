@@ -1,10 +1,6 @@
-import os
-import subprocess
-import time
 from typing import Any, Optional
 
 import cv2
-import numpy as np
 
 
 class CameraManager:
@@ -13,142 +9,41 @@ class CameraManager:
         self.width = width
         self.height = height
         self.fps = fps
-        self.proc: Optional[subprocess.Popen] = None
-        self.raw_bytes = b""
-        self._start_process()
+        self.cap: Optional[cv2.VideoCapture] = None
+        self._open_camera()
 
-    def _start_process(self):
-        """Start rpicam-vid and stream MJPEG frames via stdout."""
-        command = [
-            "rpicam-vid",
-            "-t",
-            "0",
-            "--camera",
-            str(self.index),
-            "--width",
-            str(self.width),
-            "--height",
-            str(self.height),
-            "--framerate",
-            str(self.fps),
-            "--codec",
-            "mjpeg",
-            "--low-latency",
-            "--inline",
-            "--nopreview",
-            "-o",
-            "-",
-        ]
-        try:
-            self.proc = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                bufsize=10**6,
-            )
-            if self.proc.stdout is not None:
-                fileno = getattr(self.proc.stdout, "fileno", None)
-                if callable(fileno):
-                    os.set_blocking(fileno(), False)
-            print(
-                f"[Camera] Started rpicam-vid stream "
-                f"({self.width}x{self.height} @ {self.fps}fps, cam={self.index})"
-            )
-        except OSError as exc:
-            # Non-fatal: caller loop will keep retrying by checking get_frame() == None.
-            self.proc = None
-            print(f"[Camera] Failed to start rpicam-vid: {exc}")
-
-    def get_frame(self) -> Optional[Any]:
-        """Read and decode the newest available JPEG frame with minimal latency."""
-        if not self.proc or self.proc.stdout is None:
-            self._start_process()
-            if not self.proc or self.proc.stdout is None:
-                return None
-
-        if self.proc.stdout is None:
-            return None
-
-        fileno = getattr(self.proc.stdout, "fileno", None)
-        fd = fileno() if callable(fileno) else None
-        latest_jpg = None
-        deadline = time.monotonic() + 0.03
-
-        while True:
-            try:
-                if fd is None:
-                    chunk = self.proc.stdout.read(65536)
-                else:
-                    chunk = os.read(fd, 65536)
-            except BlockingIOError:
-                chunk = None
-
-            if chunk:
-                self.raw_bytes += chunk
-                newest = self._extract_latest_jpeg()
-                if newest is not None and len(newest) > 100:
-                    latest_jpg = newest
-                if len(self.raw_bytes) > 2_000_000:
-                    self.raw_bytes = b""
-                if time.monotonic() < deadline:
-                    continue
-                break
-
-            if chunk == b"" and latest_jpg is not None:
-                break
-
-            poll = getattr(self.proc, "poll", None)
-            process_ended = poll() is not None if callable(poll) else True
-            if chunk == b"" and process_ended:
-                # Stream ended unexpectedly; restart for next loop cycle.
-                self.release()
-                self._start_process()
-                return None
-
-            if latest_jpg is not None or time.monotonic() >= deadline:
-                break
-            time.sleep(0.001)
-
-        if latest_jpg is None:
-            return None
-
-        np_arr = np.frombuffer(latest_jpg, dtype=np.uint8)
-        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        return frame
-
-    def _extract_latest_jpeg(self) -> Optional[bytes]:
-        """Extract and return the newest complete JPEG frame from the buffer."""
-        last_frame = None
-
-        while True:
-            start = self.raw_bytes.find(b"\xff\xd8")
-            if start == -1:
-                # No JPEG start marker in buffer.
-                if len(self.raw_bytes) > 1_000_000:
-                    self.raw_bytes = b""
-                return last_frame
-
-            end = self.raw_bytes.find(b"\xff\xd9", start + 2)
-            if end == -1:
-                # Keep partial JPEG from latest start marker and drop stale prefix noise.
-                if start > 0:
-                    self.raw_bytes = self.raw_bytes[start:]
-                return last_frame
-
-            last_frame = self.raw_bytes[start : end + 2]
-            self.raw_bytes = self.raw_bytes[end + 2 :]
-
-    def release(self):
-        """Safely terminate rpicam-vid process."""
-        if not self.proc:
+    def _open_camera(self):
+        self.release()
+        self.cap = cv2.VideoCapture(self.index)
+        if self.cap is None or not self.cap.isOpened():
+            self.cap = None
+            print(f"[Camera] Failed to open camera index={self.index}")
             return
 
-        self.proc.terminate()
-        try:
-            self.proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
-        finally:
-            self.proc = None
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.width))
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.height))
+        self.cap.set(cv2.CAP_PROP_FPS, float(self.fps))
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1.0)
+        print(f"[Camera] Opened cv2 camera ({self.width}x{self.height} @ {self.fps}fps, cam={self.index})")
 
+    def get_frame(self) -> Optional[Any]:
+        """Read one frame from cv2.VideoCapture."""
+        if self.cap is None or not self.cap.isOpened():
+            self._open_camera()
+            if self.cap is None or not self.cap.isOpened():
+                return None
+
+        ok, frame = self.cap.read()
+        if not ok or frame is None:
+            self._open_camera()
+            return None
+        return frame
+
+    def release(self):
+        """Safely release cv2 capture."""
+        if self.cap is None:
+            return
+
+        self.cap.release()
+        self.cap = None
         print("[Camera] Released")

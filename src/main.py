@@ -50,15 +50,15 @@ def main(argv=None):
                 print(f"[main] model 경로: {args.model_path}")
                 break
 
-    handler = None
+    handler = OutputM()
+    start_sensor_display = getattr(handler, "startSensorDisplayUpdates", None)
+    if callable(start_sensor_display):
+        start_sensor_display()
+
     if not args.test_mode or args.test_dispatch:
-        handler = OutputM()
         connect_bluetooth = getattr(handler.bluetooth, "connect", None)
         if callable(connect_bluetooth):
             connect_bluetooth()
-        start_sensor_display = getattr(handler, "startSensorDisplayUpdates", None)
-        if callable(start_sensor_display):
-            start_sensor_display()
 
     cam = CameraManager(
         index=args.camera_index,
