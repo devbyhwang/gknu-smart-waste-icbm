@@ -460,25 +460,6 @@ class MotorC:
         if self.move_delay and (self.bottom_servo is not None or self.top_servo is not None):
             sleep(self.move_delay)
 
-    def _detach_servo(self, servo):
-        if servo is None:
-            return
-        detach = getattr(servo, "detach", None)
-        if callable(detach):
-            try:
-                detach()
-                return
-            except Exception:
-                pass
-        try:
-            servo.value = None
-        except Exception:
-            pass
-
-    def _detach_motors(self):
-        self._detach_servo(self.bottom_servo)
-        self._detach_servo(self.top_servo)
-
     def _set_bottom_angle(self, angle):
         self.bottom_angle = angle
         self.currentAngle = angle
@@ -502,7 +483,6 @@ class MotorC:
         self._set_bottom_angle(0)
         self._set_top_angle(90)
         self._sleep_after_move()
-        self._detach_motors()
 
     def process_item(self, received_value):
         category = self._category_value(received_value)
