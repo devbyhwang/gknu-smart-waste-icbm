@@ -29,10 +29,12 @@ try:
     from gpiozero.pins.lgpio import LGPIOFactory
 
     _GPIO_FACTORY = LGPIOFactory()
-except Exception:
+    _GPIO_INIT_ERROR = None
+except Exception as exc:
     AngularServo = None
     DistanceSensor = None
     _GPIO_FACTORY = None
+    _GPIO_INIT_ERROR = exc
 
 
 class SoundType(Enum):
@@ -429,6 +431,8 @@ class MotorC:
         self.bottom_angle = 0
         self.top_angle = 90
         self.command_log = []
+        self.hardware_enabled = False
+        self.hardware_error = _GPIO_INIT_ERROR
 
         if AngularServo is not None and _GPIO_FACTORY is not None:
             try:
@@ -450,9 +454,21 @@ class MotorC:
                     initial_angle=None,
                     pin_factory=_GPIO_FACTORY,
                 )
-            except Exception:
+                self.hardware_enabled = True
+                self.hardware_error = None
+            except Exception as exc:
                 self.bottom_servo = None
                 self.top_servo = None
+                self.hardware_error = exc
+                print(
+                    "[Motor] 경고: 서보 GPIO 초기화 실패. "
+                    f"핀/권한/lgpio 설치 상태를 확인하세요. 원인={exc!r}"
+                )
+        else:
+            print(
+                "[Motor] 경고: gpiozero/lgpio를 사용할 수 없어 실제 모터가 동작하지 않습니다. "
+                f"원인={self.hardware_error!r}"
+            )
 
         self.reset_motors()
 
@@ -509,6 +525,12 @@ class MotorC:
         bottom_angle, top_angle = self.ANGLE_MAP.get(category, self.ANGLE_MAP["Unknown"])
 
         print(f"\n[Motor] '{category}' 분류를 시작합니다.")
+        print(
+            f"[Motor] 하드웨어 상태: enabled={self.hardware_enabled}, "
+            f"bottom_pin={self.bottom_pin}, top_pin={self.top_pin}"
+        )
+        if not self.hardware_enabled:
+            print(f"[Motor] 실제 GPIO 출력 없음: {self.hardware_error!r}")
         print(f"[Motor] 하단 모터 {bottom_angle}도로 이동")
         self._set_bottom_angle(bottom_angle)
         self._sleep_after_move()
