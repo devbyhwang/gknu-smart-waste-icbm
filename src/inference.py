@@ -1,4 +1,5 @@
 import os
+import threading
 import time
 from typing import Any, Optional, Tuple
 
@@ -96,6 +97,72 @@ class WasteClassifier:
         self._overlay_font_cache = {}
         self._sensor_refresh_interval_sec = 5.0
         self._next_sensor_refresh_at = 0.0
+        self._predict_lock = threading.Lock()
+        self._predict_cond = threading.Condition(self._predict_lock)
+        self._predict_stop = False
+        self._predict_frame = None
+        self._predict_result = None
+        self._predict_busy = False
+        self._predict_thread = None
+
+    def _start_predict_worker(self):
+        if self._predict_thread is not None and self._predict_thread.is_alive():
+            return
+
+        self._predict_stop = False
+        self._predict_frame = None
+        self._predict_result = None
+        self._predict_busy = False
+        self._predict_thread = threading.Thread(
+            target=self._predict_worker_loop,
+            name="InferencePredictWorker",
+            daemon=True,
+        )
+        self._predict_thread.start()
+
+    def _predict_worker_loop(self):
+        while True:
+            with self._predict_cond:
+                while not self._predict_stop and self._predict_frame is None:
+                    self._predict_cond.wait(timeout=0.05)
+                if self._predict_stop:
+                    return
+                frame = self._predict_frame
+                self._predict_frame = None
+                self._predict_busy = True
+
+            if frame is None:
+                with self._predict_cond:
+                    self._predict_busy = False
+                continue
+
+            label, conf, bbox = self.engine.predict_detailed(frame)
+            label = self._normalize_label(label)
+
+            with self._predict_cond:
+                self._predict_result = (label, conf, bbox)
+                self._predict_busy = False
+
+    def _submit_predict_frame(self, frame):
+        with self._predict_cond:
+            # Keep only the newest frame for inference.
+            self._predict_frame = frame
+            self._predict_cond.notify()
+
+    def _pop_predict_result(self):
+        with self._predict_cond:
+            result = self._predict_result
+            self._predict_result = None
+            return result
+
+    def _stop_predict_worker(self):
+        with self._predict_cond:
+            self._predict_stop = True
+            self._predict_cond.notify_all()
+        thread = self._predict_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
+        self._predict_thread = None
 
     def _normalize_label(self, label: Optional[str]) -> Optional[str]:
         if label is None:
@@ -257,6 +324,7 @@ class WasteClassifier:
         bbox = None
         triggered = False
         decision = "WAIT"
+        self._start_predict_worker()
         try:
             while True:
                 frame = self.camera.get_frame()
@@ -269,9 +337,12 @@ class WasteClassifier:
                 self._refresh_sensor_snapshot_if_due(now)
                 if now >= next_inference_at:
                     next_inference_at = now + self._inference_interval_seconds()
+                    self._submit_predict_frame(frame.copy())
+
+                predict_result = self._pop_predict_result()
+                if predict_result is not None:
                     before_label = self.last_label
-                    label, conf, bbox = self.engine.predict_detailed(frame)
-                    label = self._normalize_label(label)
+                    label, conf, bbox = predict_result
                     is_valid = self.validate(label, conf)
                     triggered = False
                     decision = "WAIT"
@@ -337,5 +408,6 @@ class WasteClassifier:
                 if key in (ord("q"), 27):
                     break
         finally:
+            self._stop_predict_worker()
             cv2.destroyAllWindows()
             self.camera.release()
