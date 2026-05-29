@@ -131,6 +131,36 @@ def test_motor_process_item_uses_pr23_angle_map_and_resets():
     assert motor.currentAngle == 0
 
 
+def test_motor_process_item_recreates_and_closes_servo_handles(monkeypatch):
+    created = []
+
+    class FakeServo:
+        def __init__(self, pin, **kwargs):
+            self.pin = pin
+            self.kwargs = kwargs
+            self.angle = None
+            self.closed = 0
+            created.append(self)
+
+        def close(self):
+            self.closed += 1
+
+    monkeypatch.setattr(hardware, "AngularServo", FakeServo)
+    monkeypatch.setattr(hardware, "_GPIO_FACTORY", object())
+
+    motor = MotorC(move_delay=0)
+    created.clear()
+
+    motor.process_item("Can")
+
+    assert [servo.pin for servo in created] == [18, 19]
+    assert [servo.kwargs["initial_angle"] for servo in created] == [0, 90]
+    assert [servo.angle for servo in created] == [0, 90]
+    assert [servo.closed for servo in created] == [1, 1]
+    assert motor.bottom_servo is None
+    assert motor.top_servo is None
+
+
 def test_motor_process_item_unknown_uses_unknown_angle_map():
     motor = MotorC(move_delay=0)
     motor.command_log.clear()
