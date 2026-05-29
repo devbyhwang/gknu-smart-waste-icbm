@@ -1,5 +1,3 @@
-import threading
-
 try:
     from .hardware import AudioC, BluetoothC, DisplayC, SensorC, ServoC, SoundType
     from .models import ClassificationResult, HandleClassificationResult, WasteType
@@ -17,7 +15,6 @@ BIN_SENSOR_CONFIG = {
 
 BIN_FULL_WARNING = "분류함이 가득 찼습니다! 비운 후 다시 시도하세요."
 BIN_FULL_ALERT = "분류함 비움 필요"
-SENSOR_REFRESH_INTERVAL_SECONDS = 0.5
 
 
 class OutputM(HandleClassificationResult):
@@ -31,9 +28,6 @@ class OutputM(HandleClassificationResult):
         }
         self.sensor = self.sensors[WasteType.CAN]
         self.bluetooth = BluetoothC()
-        self._display_lock = threading.RLock()
-        self._sensor_update_stop = threading.Event()
-        self._sensor_update_thread = None
 
     def _send_bluetooth_message(self, method_name: str, legacy_name: str, message: str):
         sender = getattr(self.bluetooth, method_name, None)
@@ -68,12 +62,6 @@ class OutputM(HandleClassificationResult):
         except Exception:
             return None
 
-        if isinstance(value, (list, tuple)):
-            return [self._clamp_fill_level(item) for item in value]
-
-        return self._clamp_fill_level(value)
-
-    def _clamp_fill_level(self, value):
         try:
             return max(0.0, min(1.0, float(value)))
         except (TypeError, ValueError):
@@ -85,34 +73,12 @@ class OutputM(HandleClassificationResult):
             if not callable(reader):
                 continue
             try:
-                value = reader()
+                return bool(reader())
             except Exception:
                 return None
-            if isinstance(value, (list, tuple)):
-                return [bool(item) for item in value]
-            return bool(value)
         return None
 
-    def _coerce_sequence_by_bin(self, values):
-        if not isinstance(values, (list, tuple)):
-            return None
-        return {
-            waste_type: values[index] if index < len(values) else None
-            for index, waste_type in enumerate(BIN_SENSOR_CONFIG)
-        }
-
-    def _status_indicates_full(self, status):
-        if isinstance(status, (list, tuple)):
-            return any(bool(item) for item in status)
-        return bool(status)
-
     def collectFillLevels(self):
-        multi_sensor_levels = self._coerce_sequence_by_bin(
-            self._read_sensor_fill_level(getattr(self, "sensor", None))
-        )
-        if multi_sensor_levels is not None:
-            return multi_sensor_levels
-
         fill_levels = {}
         for waste_type, sensor in getattr(self, "sensors", {}).items():
             fill_levels[waste_type] = self._read_sensor_fill_level(sensor)
@@ -134,23 +100,13 @@ class OutputM(HandleClassificationResult):
 
     def collectFullBins(self, fill_levels=None):
         full_bins = self._full_bins_from_fill_levels(fill_levels)
-
-        multi_sensor_status = self._coerce_sequence_by_bin(
-            self._read_sensor_full_status(getattr(self, "sensor", None))
-        )
-        if multi_sensor_status is not None:
-            for waste_type, is_full in multi_sensor_status.items():
-                if is_full:
-                    full_bins.add(waste_type)
-            return full_bins
-
         for waste_type, sensor in getattr(self, "sensors", {}).items():
-            if self._status_indicates_full(self._read_sensor_full_status(sensor)):
+            if self._read_sensor_full_status(sensor):
                 full_bins.add(waste_type)
         return full_bins
 
     def checkBinFull(self, label=None, fill_levels=None):
-        if self._status_indicates_full(self._read_sensor_full_status(getattr(self, "sensor", None))):
+        if self._read_sensor_full_status(getattr(self, "sensor", None)):
             return True
 
         full_bins = self.collectFullBins(fill_levels)
@@ -161,97 +117,38 @@ class OutputM(HandleClassificationResult):
 
         return False
 
-    def refreshSensorDisplay(self):
-        fill_levels = self.collectFillLevels()
-        full_bins = self.collectFullBins(fill_levels)
-
-        with self._display_lock:
-            show_sensor_status = getattr(self.display, "showSensorStatus", None)
-            if callable(show_sensor_status):
-                show_sensor_status(fill_levels=fill_levels, full_bins=full_bins)
-                return fill_levels, full_bins
-
-            show_status = getattr(self.display, "showClassificationStatus", None)
-            if callable(show_status):
-                show_status(
-                    None,
-                    fill_levels=fill_levels,
-                    full_bins=full_bins,
-                    message="분류함 상태",
-                )
-                return fill_levels, full_bins
-
-            refresh_screen = getattr(self.display, "refreshScreen", None)
-            if callable(refresh_screen):
-                refresh_screen()
-
-        return fill_levels, full_bins
-
-    def startSensorDisplayUpdates(self, interval_seconds=SENSOR_REFRESH_INTERVAL_SECONDS):
-        if self._sensor_update_thread and self._sensor_update_thread.is_alive():
-            return self._sensor_update_thread
-
-        self._sensor_update_stop.clear()
-        interval_seconds = max(0.1, float(interval_seconds))
-
-        def _run():
-            while not self._sensor_update_stop.is_set():
-                try:
-                    self.refreshSensorDisplay()
-                except Exception:
-                    pass
-                self._sensor_update_stop.wait(interval_seconds)
-
-        self._sensor_update_thread = threading.Thread(
-            target=_run,
-            name="smart-bin-sensor-display",
-            daemon=True,
-        )
-        self._sensor_update_thread.start()
-        return self._sensor_update_thread
-
-    def stopSensorDisplayUpdates(self, timeout=1.0):
-        self._sensor_update_stop.set()
-        thread = self._sensor_update_thread
-        if thread and thread.is_alive():
-            thread.join(timeout=timeout)
-
     def _show_bin_full_warning(self, result, fill_levels, full_bins):
         show_bin_full = getattr(self.display, "showBinFullWarning", None)
         if callable(show_bin_full):
-            with self._display_lock:
-                show_bin_full(BIN_FULL_WARNING, fill_levels=fill_levels, full_bins=full_bins)
+            show_bin_full(BIN_FULL_WARNING, fill_levels=fill_levels, full_bins=full_bins)
             return
 
         show_status = getattr(self.display, "showClassificationStatus", None)
         if callable(show_status):
-            with self._display_lock:
-                try:
-                    show_status(
-                        result.label,
-                        confidence=result.confidence,
-                        fill_levels=fill_levels,
-                        full_bins=full_bins,
-                        message=BIN_FULL_WARNING,
-                    )
-                except TypeError:
-                    show_status(
-                        result.label,
-                        confidence=result.confidence,
-                        fill_levels=fill_levels,
-                        full_bins=full_bins,
-                    )
+            try:
+                show_status(
+                    result.label,
+                    confidence=result.confidence,
+                    fill_levels=fill_levels,
+                    full_bins=full_bins,
+                    message=BIN_FULL_WARNING,
+                )
+            except TypeError:
+                show_status(
+                    result.label,
+                    confidence=result.confidence,
+                    fill_levels=fill_levels,
+                    full_bins=full_bins,
+                )
 
         show_warning = getattr(self.display, "showWarning", None)
         if callable(show_warning):
-            with self._display_lock:
-                show_warning(BIN_FULL_WARNING)
+            show_warning(BIN_FULL_WARNING)
             return
 
         legacy_warning = getattr(self.display, "show_warning", None)
         if callable(legacy_warning):
-            with self._display_lock:
-                legacy_warning(BIN_FULL_WARNING)
+            legacy_warning(BIN_FULL_WARNING)
 
     def _block_classification_for_full_bin(self, result, fill_levels, full_bins):
         self._show_bin_full_warning(result, fill_levels, full_bins)
@@ -271,13 +168,11 @@ class OutputM(HandleClassificationResult):
         warning_text = "출력 장치 처리 중 예외가 발생했습니다."
         show_warning = getattr(self.display, "showWarning", None)
         if callable(show_warning):
-            with self._display_lock:
-                show_warning(warning_text)
+            show_warning(warning_text)
         else:
             legacy_warning = getattr(self.display, "show_warning", None)
             if callable(legacy_warning):
-                with self._display_lock:
-                    legacy_warning(warning_text)
+                legacy_warning(warning_text)
 
         play_effect = getattr(self.audio, "playEffect", None)
         if callable(play_effect):
@@ -295,7 +190,7 @@ class OutputM(HandleClassificationResult):
             print(f"\n[OutputM] 결과 처리 시작: {result.label.value}")
             fill_levels = self.collectFillLevels()
             full_bins = self.collectFullBins(fill_levels)
-            if self._status_indicates_full(self._read_sensor_full_status(getattr(self, "sensor", None))):
+            if self._read_sensor_full_status(getattr(self, "sensor", None)):
                 full_bins.add(result.label)
 
             if full_bins:
@@ -305,23 +200,20 @@ class OutputM(HandleClassificationResult):
 
             show_status = getattr(self.display, "showClassificationStatus", None)
             if callable(show_status):
-                with self._display_lock:
-                    show_status(
-                        result.label,
-                        confidence=result.confidence,
-                        fill_levels=fill_levels,
-                        full_bins=full_bins,
-                    )
+                show_status(
+                    result.label,
+                    confidence=result.confidence,
+                    fill_levels=fill_levels,
+                    full_bins=full_bins,
+                )
             else:
                 show_category = getattr(self.display, "showCategory", None)
                 if callable(show_category):
-                    with self._display_lock:
-                        show_category(result.label.value, result.label.value)
+                    show_category(result.label.value, result.label.value)
                 else:
                     legacy_show_category = getattr(self.display, "show_category", None)
                     if callable(legacy_show_category):
-                        with self._display_lock:
-                            legacy_show_category(result.label.value)
+                        legacy_show_category(result.label.value)
 
             play_tts = getattr(self.audio, "playTTS", None)
             if callable(play_tts):
