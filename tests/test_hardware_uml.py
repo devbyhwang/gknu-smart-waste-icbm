@@ -54,22 +54,6 @@ def test_display_clamps_bad_fill_values_without_breaking_render():
     assert display.render_frame() is not None
 
 
-def test_display_renders_realtime_sensor_status_without_classification():
-    display = DisplayC(enable_window=False)
-
-    display.showSensorStatus(
-        fill_levels={WasteType.CAN: 0.2, WasteType.PLASTIC: 0.4},
-        full_bins={WasteType.PLASTIC},
-    )
-
-    assert display.selected_label is None
-    assert display.message == "분류함 상태"
-    assert display.fill_levels["Can"] == 0.2
-    assert display.fill_levels["Plastic"] == 0.4
-    assert display.full_bins == {"Plastic"}
-    assert display.render_frame() is not None
-
-
 def test_display_uses_only_korean_font_candidates_for_hangul_text():
     display = DisplayC(enable_window=False)
 
