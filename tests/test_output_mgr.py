@@ -107,7 +107,7 @@ def test_output_manager_full_bin_branch():
     assert output.display.calls == [("show_warning", BIN_FULL_WARNING)]
     assert output.audio.calls == []
     assert output.servo.calls == []
-    assert output.bluetooth.calls == [("send_alert", "분류함 비움 필요")]
+    assert output.bluetooth.calls == [("send_alert", "Paper 분류함 비움 필요")]
 
 
 def test_outputm_camel_case_path():
@@ -161,7 +161,7 @@ def test_outputm_camel_case_path():
     assert output.display.calls == [("showWarning", BIN_FULL_WARNING)]
     assert output.audio.calls == []
     assert output.servo.calls == []
-    assert output.bluetooth.calls == [("sendAlert", "분류함 비움 필요")]
+    assert output.bluetooth.calls == [("sendAlert", "Glass 분류함 비움 필요")]
 
 
 def test_output_manager_is_compat_alias():
@@ -293,7 +293,7 @@ def test_outputm_full_bin_uses_typed_ble_event():
 
     output.handleClassification(ClassificationResult(WasteType.CAN, 0.91))
 
-    assert output.bluetooth.calls == [("BIN_FULL", "분류함 비움 필요")]
+    assert output.bluetooth.calls == [("BIN_FULL", "Can 분류함 비움 필요")]
 
 
 def test_outputm_passes_four_sensor_levels_to_display_status():
@@ -356,7 +356,7 @@ def test_outputm_passes_four_sensor_levels_to_display_status():
     assert ("warning", BIN_FULL_WARNING) in output.display.calls
     assert output.audio.calls == []
     assert output.servo.calls == []
-    assert output.bluetooth.calls == [("BIN_FULL", "분류함 비움 필요")]
+    assert output.bluetooth.calls == [("BIN_FULL", "Paper, Plastic 분류함 비움 필요")]
 
 
 def test_outputm_alerts_when_any_sensor_reports_full_without_fill_level():
@@ -405,7 +405,7 @@ def test_outputm_alerts_when_any_sensor_reports_full_without_fill_level():
     assert ("warning", BIN_FULL_WARNING) in output.display.calls
     assert output.audio.calls == []
     assert output.servo.calls == []
-    assert output.bluetooth.calls == [("BIN_FULL", "분류함 비움 필요")]
+    assert output.bluetooth.calls == [("BIN_FULL", "Plastic 분류함 비움 필요")]
 
 
 def test_outputm_exception_uses_output_exception_ble_event():
@@ -486,8 +486,17 @@ def test_outputm_refresh_sensor_status_updates_four_bins():
         def isFull(self):
             return self.value >= self.fillThreshold
 
+    class EventBluetooth:
+        def __init__(self):
+            self.calls = []
+
+        def sendEvent(self, event, message):
+            self.calls.append((event, message))
+            return True
+
     output = OutputM()
     output.display = SnapshotDisplay()
+    output.bluetooth = EventBluetooth()
     output.sensors = {
         WasteType.CAN: FillSensor(0.10),
         WasteType.PLASTIC: FillSensor(0.40),
@@ -505,6 +514,56 @@ def test_outputm_refresh_sensor_status_updates_four_bins():
     }
     assert full_bins == {WasteType.GLASS, WasteType.PAPER}
     assert output.display.calls == [(fill_levels, full_bins, "인식 대기")]
+    assert output.bluetooth.calls == [("BIN_FULL", "Glass, Paper 분류함 비움 필요")]
+
+
+def test_outputm_refresh_sensor_status_sends_ble_once_per_full_transition():
+    class SnapshotDisplay:
+        def showSensorSnapshot(self, fill_levels=None, full_bins=None, message=None):
+            return None
+
+    class FillSensor:
+        fillThreshold = 0.8
+
+        def __init__(self, value):
+            self.value = value
+
+        def checkFillLevel(self):
+            return self.value
+
+        def isFull(self):
+            return self.value >= self.fillThreshold
+
+    class EventBluetooth:
+        def __init__(self):
+            self.calls = []
+
+        def sendEvent(self, event, message):
+            self.calls.append((event, message))
+            return True
+
+    can_sensor = FillSensor(0.90)
+    output = OutputM()
+    output.display = SnapshotDisplay()
+    output.bluetooth = EventBluetooth()
+    output.sensors = {
+        WasteType.CAN: can_sensor,
+        WasteType.PLASTIC: FillSensor(0.10),
+        WasteType.GLASS: FillSensor(0.10),
+        WasteType.PAPER: FillSensor(0.10),
+    }
+
+    output.refreshSensorStatus()
+    output.refreshSensorStatus()
+    can_sensor.value = 0.20
+    output.refreshSensorStatus()
+    can_sensor.value = 0.95
+    output.refreshSensorStatus()
+
+    assert output.bluetooth.calls == [
+        ("BIN_FULL", "Can 분류함 비움 필요"),
+        ("BIN_FULL", "Can 분류함 비움 필요"),
+    ]
 
 
 def test_outputm_sensor_polling_start_stop_is_idempotent():
