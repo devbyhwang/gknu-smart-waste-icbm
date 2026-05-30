@@ -25,9 +25,10 @@ Android 소스는 별도 레포지토리에서 관리하는 것을 전제로 작
 
 ## 2) BLE Contract (Pi ↔ Android)
 
-- Service UUID: `12345678-1234-5678-1234-56789abcdef0`
-- Notify Characteristic UUID: `12345678-1234-5678-1234-56789abcdef1`
+- Service UUID: `f82d9a22-3dc9-430e-875d-583c9ced1904`
+- Notify Characteristic UUID: `2c5bba85-ac1c-46c2-a8d3-db389101a028`
 - Payload: UTF-8 JSON
+- Direction: Pi -> Android notify only. The Pi server does not implement an Android -> Pi request/response handshake.
 
 ```json
 {
@@ -196,28 +197,43 @@ class BleClient(
     private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager?.adapter
     private var gatt: BluetoothGatt? = null
 
-    private val serviceUuid = UUID.fromString("12345678-1234-5678-1234-56789abcdef0")
-    private val notifyUuid = UUID.fromString("12345678-1234-5678-1234-56789abcdef1")
+    private val serviceUuid = UUID.fromString("f82d9a22-3dc9-430e-875d-583c9ced1904")
+    private val notifyUuid = UUID.fromString("2c5bba85-ac1c-46c2-a8d3-db389101a028")
     private val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
     @SuppressLint("MissingPermission")
     fun connect(device: BluetoothDevice) {
+        disconnect()
         gatt = device.connectGatt(null, false, object : BluetoothGattCallback() {
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-                if (newState == BluetoothGatt.STATE_CONNECTED) {
-                    Log.i("BleClient", "Connected. Discovering services...")
-                    gatt.discoverServices()
+                when (newState) {
+                    BluetoothGatt.STATE_CONNECTED -> {
+                        Log.i("BleClient", "Connected. Discovering services...")
+                        gatt.discoverServices()
+                    }
+                    BluetoothGatt.STATE_DISCONNECTED -> {
+                        Log.i("BleClient", "Disconnected. Closing stale GATT.")
+                        closeGatt(gatt)
+                    }
                 }
             }
 
             override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    Log.e("BleClient", "Service discovery failed. status=$status")
+                    disconnect()
+                    return
+                }
+
                 val service: BluetoothGattService = gatt.getService(serviceUuid) ?: run {
                     Log.e("BleClient", "Service UUID not found")
+                    disconnect()
                     return
                 }
                 val characteristic: BluetoothGattCharacteristic =
                     service.getCharacteristic(notifyUuid) ?: run {
                         Log.e("BleClient", "Notify characteristic UUID not found")
+                        disconnect()
                         return
                     }
 
@@ -229,6 +245,7 @@ class BleClient(
                     Log.i("BleClient", "CCCD write requested")
                 } else {
                     Log.e("BleClient", "CCCD descriptor not found")
+                    disconnect()
                 }
             }
 
@@ -255,6 +272,22 @@ class BleClient(
                 }
             }
         })
+    }
+
+    @SuppressLint("MissingPermission")
+    fun disconnect() {
+        gatt?.disconnect()
+        gatt?.close()
+        gatt = null
+    }
+
+    private fun closeGatt(closedGatt: BluetoothGatt) {
+        if (gatt == closedGatt) {
+            closedGatt.close()
+            gatt = null
+        } else {
+            closedGatt.close()
+        }
     }
 
     fun isBluetoothReady(): Boolean {

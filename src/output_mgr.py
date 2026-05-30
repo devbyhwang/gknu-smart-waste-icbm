@@ -34,6 +34,7 @@ class OutputM(HandleClassificationResult):
         self._state_lock = threading.RLock()
         self._polling_stop = threading.Event()
         self._polling_thread = None
+        self._alerted_full_bins = set()
 
         if enable_sensor_polling:
             self.start_sensor_polling()
@@ -60,6 +61,36 @@ class OutputM(HandleClassificationResult):
                 return False
 
         return self._send_bluetooth_message(method_name, legacy_name, message)
+
+    def _bin_full_alert_message(self, full_bins):
+        if not full_bins:
+            return BIN_FULL_ALERT
+
+        names = ", ".join(sorted(waste_type.value for waste_type in full_bins))
+        return f"{names} 분류함 비움 필요"
+
+    def _send_new_full_bin_alert(self, full_bins):
+        current_full_bins = set(full_bins or set())
+        newly_full_bins = current_full_bins - self._alerted_full_bins
+
+        if not newly_full_bins:
+            self._alerted_full_bins &= current_full_bins
+            return False
+
+        message = self._bin_full_alert_message(newly_full_bins)
+        print(f"[OutputM] 새 가득참 BLE 알림: {message}")
+
+        sent = self._send_bluetooth_event(
+            "BIN_FULL",
+            message,
+            "sendAlert",
+            "send_alert",
+        )
+
+        self._alerted_full_bins |= newly_full_bins
+        self._alerted_full_bins &= current_full_bins
+        print(f"[OutputM] BLE BIN_FULL 전송 결과: {sent}")
+        return sent
 
     def _read_sensor_fill_level(self, sensor):
         reader = getattr(sensor, "checkFillLevel", None)
@@ -188,6 +219,7 @@ class OutputM(HandleClassificationResult):
             fill_levels = self.collectFillLevels()
             full_bins = self.collectFullBins(fill_levels)
             self._show_sensor_snapshot(fill_levels, full_bins)
+            self._send_new_full_bin_alert(full_bins)
             return fill_levels, full_bins
 
     def _sensor_polling_loop(self):
@@ -228,12 +260,7 @@ class OutputM(HandleClassificationResult):
         if callable(play_effect):
             play_effect(SoundType.WARNING)
 
-        self._send_bluetooth_event(
-            "BIN_FULL",
-            BIN_FULL_ALERT,
-            "sendAlert",
-            "send_alert",
-        )
+        self._send_new_full_bin_alert(full_bins)
 
     def handleException(self):
         warning_text = "출력 장치 처리 중 예외가 발생했습니다."
