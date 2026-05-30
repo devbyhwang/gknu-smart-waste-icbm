@@ -52,7 +52,7 @@ def main(argv=None):
 
     handler = None
     if not args.test_mode or args.test_dispatch:
-        handler = OutputM(enable_sensor_polling=True)
+        handler = OutputM(enable_sensor_polling=False)
         connect_bluetooth = getattr(handler.bluetooth, "connect", None)
         if callable(connect_bluetooth):
             connect_bluetooth()
