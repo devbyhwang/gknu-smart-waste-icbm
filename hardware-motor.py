@@ -28,10 +28,10 @@ class MotorC: # 혹은 SortingSystem
         # 3. 각도 지도 세팅
         self.angle_map = {
             WasteCategory.CAN: 45,
-            WasteCategory.PLASTIC: 90,
+            WasteCategory.PLASTIC: 135,
             WasteCategory.GLASS: 135,
-            WasteCategory.PAPER: 180,
-            WasteCategory.UNKNOWN: 180
+            WasteCategory.PAPER: 45,
+            WasteCategory.UNKNOWN: 45
         }
 
     def process_item(self, received_value):
