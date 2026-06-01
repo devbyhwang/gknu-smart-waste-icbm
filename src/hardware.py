@@ -385,39 +385,54 @@ class AudioC:
             "건전지": "캔",
             "유리병": "유리",
             "형광등": "유리",
+            
+            "Plastic": "플라스틱",
+            "plastic": "플라스틱",
+            "Can": "캔",
+            "can": "캔",
+            "Glass": "유리",
+            "glass": "유리",
+            "Paper": "일반",
+            "paper": "일반"
         }
-
-    def playTTS(self, koreanText):
-        phrase = f"이것은 {koreanText}입니다"
-        try:
-            subprocess.Popen(["espeak", "-v", "ko", phrase])
-        except Exception:
-            print(f"[Audio] '{phrase}' 재생")
+        
+        self.audio_files = {
+            "플라스틱": "/home/trash/Downloads/plastic.mp3",
+            "일반": "/home/trash/Downloads/general.mp3",
+            "캔": "/home/trash/Downloads/can.mp3",
+            "유리": "/home/trash/Downloads/glass.mp3",
+        }
+        self.effect_path = "/home/trash/Downloads/YCOIN.mp3"
 
     def playEffect(self, soundType: SoundType):
         print(f"[Audio] 효과음 재생: {soundType.value}")
-        path = self.loadAudioFile("/home/trash/Downloads/YCOIN.mp3")
-        if not pygame or not path:
-            return
+        self._play_file(self.effect_path)
 
+    def play_voice(self, category_name):
+        path = self.audio_files.get(category_name)
+        print(f"[Audio] 음성 안내 재생: {category_name} ({path})")
+        self._play_file(path)
+
+    def _play_file(self, path):
+        if not pygame or not path or not os.path.exists(path):
+            print(f"[Audio] ⚠️ 오디오 파일을 찾을 수 없거나 모듈 오류: {path}")
+            return
+            
         try:
             if not pygame.mixer.get_init():
                 pygame.mixer.init()
             sound = pygame.mixer.Sound(path)
             sound.play()
-        except Exception:
-            # 오디오 파일/장치 이슈가 전체 플로우를 깨지 않도록 무시.
-            pass
-
-    def loadAudioFile(self, path):
-        print(f"[Audio] 오디오 파일 로드 시도: {path}")
-        return path
+        except Exception as e:
+            print(f"[Audio] MP3 재생 에러: {e}")
 
     def play_tts(self, text):
         text = (text or "").strip()
-        mapped = self.category.get(text, text)
+        mapped = self.category.get(text, "일반")
+        
         self.playEffect(SoundType.SUCCESS)
-        self.playTTS(mapped)
+        sleep(0.5)
+        self.play_voice(mapped)
 
 
 class MotorC:
