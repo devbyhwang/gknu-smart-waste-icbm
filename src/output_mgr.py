@@ -1,11 +1,7 @@
 import threading
 
-try:
-    from .hardware import AudioC, BluetoothC, DisplayC, SensorC, ServoC, SoundType
-    from .models import ClassificationResult, HandleClassificationResult, WasteType
-except ImportError:
-    from hardware import AudioC, BluetoothC, DisplayC, SensorC, ServoC, SoundType
-    from models import ClassificationResult, HandleClassificationResult, WasteType
+from hardware import AudioC, BluetoothC, DisplayC, SensorC, ServoC, SoundType
+from models import ClassificationResult, HandleClassificationResult, WasteType
 
 
 BIN_SENSOR_CONFIG = {

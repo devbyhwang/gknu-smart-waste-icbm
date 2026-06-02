@@ -12,12 +12,8 @@ except Exception:
     cv2 = None
     np = None
 
-try:
-    from .ble_notify import EmbeddedBleServer
-    from .mobile.ble_notifier import BleNotifier, MockBleNotifier
-except ImportError:
-    from ble_notify import EmbeddedBleServer
-    from mobile.ble_notifier import BleNotifier, MockBleNotifier
+from ble_notify import EmbeddedBleServer
+from mobile.ble_notifier import BleNotifier, MockBleNotifier
 
 try:
     import pygame

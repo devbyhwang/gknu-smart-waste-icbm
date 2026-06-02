@@ -1,15 +1,9 @@
-import os
-import threading
 import time
 from typing import Any, Optional, Tuple
 
-import numpy as np
 from ultralytics import YOLO
 
-try:
-    from .models import ClassificationResult, HandleClassificationResult, WasteType
-except ImportError:
-    from models import ClassificationResult, HandleClassificationResult, WasteType
+from models import ClassificationResult, HandleClassificationResult, WasteType
 
 LABEL_ALIASES = {
     "can": "can",
@@ -94,75 +88,8 @@ class WasteClassifier:
         self.img_dir = img_dir
         self.last_label = None
         self.consecutive_count = 0
-        self._overlay_font_cache = {}
         self._sensor_refresh_interval_sec = 5.0
         self._next_sensor_refresh_at = 0.0
-        self._predict_lock = threading.Lock()
-        self._predict_cond = threading.Condition(self._predict_lock)
-        self._predict_stop = False
-        self._predict_frame = None
-        self._predict_result = None
-        self._predict_busy = False
-        self._predict_thread = None
-
-    def _start_predict_worker(self):
-        if self._predict_thread is not None and self._predict_thread.is_alive():
-            return
-
-        self._predict_stop = False
-        self._predict_frame = None
-        self._predict_result = None
-        self._predict_busy = False
-        self._predict_thread = threading.Thread(
-            target=self._predict_worker_loop,
-            name="InferencePredictWorker",
-            daemon=True,
-        )
-        self._predict_thread.start()
-
-    def _predict_worker_loop(self):
-        while True:
-            with self._predict_cond:
-                while not self._predict_stop and self._predict_frame is None:
-                    self._predict_cond.wait(timeout=0.05)
-                if self._predict_stop:
-                    return
-                frame = self._predict_frame
-                self._predict_frame = None
-                self._predict_busy = True
-
-            if frame is None:
-                with self._predict_cond:
-                    self._predict_busy = False
-                continue
-
-            label, conf, bbox = self.engine.predict_detailed(frame)
-            label = self._normalize_label(label)
-
-            with self._predict_cond:
-                self._predict_result = (label, conf, bbox)
-                self._predict_busy = False
-
-    def _submit_predict_frame(self, frame):
-        with self._predict_cond:
-            # Keep only the newest frame for inference.
-            self._predict_frame = frame
-            self._predict_cond.notify()
-
-    def _pop_predict_result(self):
-        with self._predict_cond:
-            result = self._predict_result
-            self._predict_result = None
-            return result
-
-    def _stop_predict_worker(self):
-        with self._predict_cond:
-            self._predict_stop = True
-            self._predict_cond.notify_all()
-        thread = self._predict_thread
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=1.0)
-        self._predict_thread = None
 
     def _normalize_label(self, label: Optional[str]) -> Optional[str]:
         if label is None:
@@ -171,54 +98,6 @@ class WasteClassifier:
         if not normalized:
             return None
         return LABEL_ALIASES.get(normalized.lower(), LABEL_ALIASES.get(normalized, normalized.lower()))
-
-    def _get_overlay_font(self, font_size: int):
-        try:
-            from PIL import ImageFont
-        except Exception:
-            return None
-
-        cached = self._overlay_font_cache.get(font_size)
-        if cached is not None:
-            return cached
-
-        font_candidates = [
-            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-            "/usr/share/fonts/truetype/nanum/NanumGothicCoding.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-            "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
-        ]
-        for font_path in font_candidates:
-            if os.path.exists(font_path):
-                try:
-                    font = ImageFont.truetype(font_path, font_size)
-                    self._overlay_font_cache[font_size] = font
-                    return font
-                except Exception:
-                    continue
-        return None
-
-    def _draw_detected_text(self, view, text: str, x: int = 12, y: int = 52):
-        import cv2
-
-        font = self._get_overlay_font(22)
-        if font is None:
-            safe_text = text.encode("ascii", "replace").decode("ascii")
-            cv2.putText(view, safe_text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            return
-
-        try:
-            from PIL import Image, ImageDraw
-
-            rgb = cv2.cvtColor(view, cv2.COLOR_BGR2RGB)
-            pil_img = Image.fromarray(rgb)
-            draw = ImageDraw.Draw(pil_img)
-            draw.text((x, y - 20), text, font=font, fill=(255, 255, 255), stroke_width=2, stroke_fill=(0, 0, 0))
-            view[:] = cv2.cvtColor(np.asarray(pil_img), cv2.COLOR_RGB2BGR)
-        except Exception:
-            safe_text = text.encode("ascii", "replace").decode("ascii")
-            cv2.putText(view, safe_text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
     def validate(self, label: Optional[str], conf: float) -> bool:
         label = self._normalize_label(label)
@@ -281,50 +160,66 @@ class WasteClassifier:
                 # 센서 갱신 실패가 인식 루프를 멈추지 않도록 무시.
                 pass
 
-    def run(self):
-        print("시스템 가동...")
-        next_inference_at = 0.0
-        try:
-            while True:
-                frame = self.camera.get_frame()
-                if frame is None:
-                    time.sleep(0.01)
-                    continue
-
-                now = time.monotonic()
-                self._refresh_sensor_snapshot_if_due(now)
-                if now < next_inference_at:
-                    time.sleep(0.001)
-                    continue
-                next_inference_at = now + self._inference_interval_seconds()
-
-                label, conf = self.engine.predict(frame)
-                if self.validate(label, conf):
-                    result = ClassificationResult(
-                        label=self.map_to_enum(label),
-                        confidence=conf,
-                    )
-                    self._dispatch_result(result)
-        finally:
-            self.camera.release()
-
-    def run_test_mode(
+    def _draw_camera_overlay(
         self,
-        dispatch_results: bool = False,
-        window_name: str = "EcoSort Test Monitor",
+        frame,
+        label: Optional[str],
+        conf: float,
+        bbox: Optional[Tuple[int, int, int, int]],
+        triggered: bool,
+        decision: str,
+        last_pass_text: str,
+        cycle: int,
     ):
         import cv2
 
-        print("테스트 모드 가동... (종료: q 또는 ESC)")
+        view = frame.copy()
+        if bbox:
+            x1, y1, x2, y2 = bbox
+            cv2.rectangle(view, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+        detected_text = f"Detected: {label or 'none'} ({conf:.2f})"
+        count_text = f"Consecutive: {self.consecutive_count}/{self.max_count}"
+        trigger_text = "TRIGGERED" if triggered else "WAITING"
+        quit_text = "Press 'q' or ESC to quit"
+        rule_text = f"Rule: conf>={self.min_confidence:.2f} and same label x{self.max_count}"
+        interval_text = f"Interval: {self.interval_ms}ms"
+        cycle_text = f"Cycle: {cycle}"
+        decision_text = f"Decision: {decision}"
+        pass_text = f"Last pass: {last_pass_text}"
+
+        cv2.putText(view, "[LIVE]", (12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        cv2.putText(view, detected_text, (12, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        cv2.putText(view, count_text, (12, 78), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        cv2.putText(
+            view,
+            trigger_text,
+            (12, 104),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0) if triggered else (0, 165, 255),
+            2,
+        )
+        cv2.putText(view, rule_text, (12, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
+        cv2.putText(view, interval_text, (12, 154), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
+        cv2.putText(view, cycle_text, (12, 178), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
+        cv2.putText(view, decision_text, (12, 202), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
+        cv2.putText(view, pass_text, (12, 226), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
+        cv2.putText(view, quit_text, (12, 250), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
+        return view
+
+    def run(self, window_name: str = "EcoSort Monitor"):
+        import cv2
+
+        print("시스템 가동... (종료: q 또는 ESC)")
+        next_inference_at = 0.0
         cycle = 0
         last_pass_text = "never"
-        next_inference_at = 0.0
         label = None
         conf = 0.0
         bbox = None
         triggered = False
         decision = "WAIT"
-        self._start_predict_worker()
         try:
             while True:
                 frame = self.camera.get_frame()
@@ -337,21 +232,18 @@ class WasteClassifier:
                 self._refresh_sensor_snapshot_if_due(now)
                 if now >= next_inference_at:
                     next_inference_at = now + self._inference_interval_seconds()
-                    self._submit_predict_frame(frame.copy())
-
-                predict_result = self._pop_predict_result()
-                if predict_result is not None:
                     before_label = self.last_label
-                    label, conf, bbox = predict_result
-                    is_valid = self.validate(label, conf)
+                    label, conf, bbox = self.engine.predict_detailed(frame)
+                    normalized_label = self._normalize_label(label)
+                    is_valid = self.validate(normalized_label, conf)
                     triggered = False
                     decision = "WAIT"
 
-                    if not label:
+                    if not normalized_label:
                         decision = "NO_LABEL"
                     elif conf < self.min_confidence:
                         decision = "LOW_CONF"
-                    elif label != before_label:
+                    elif normalized_label != before_label:
                         decision = "NEW_LABEL"
                     else:
                         decision = "COUNTING"
@@ -360,54 +252,26 @@ class WasteClassifier:
                         triggered = True
                         decision = "PASSED"
                         last_pass_text = time.strftime("%H:%M:%S")
-                        if dispatch_results:
-                            result = ClassificationResult(
-                                label=self.map_to_enum(label),
-                                confidence=conf,
-                            )
-                            self._dispatch_result(result)
+                        result = ClassificationResult(
+                            label=self.map_to_enum(normalized_label),
+                            confidence=conf,
+                        )
+                        self._dispatch_result(result)
 
-                view = frame.copy()
-                if bbox:
-                    x1, y1, x2, y2 = bbox
-                    cv2.rectangle(view, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-                detected_text = f"Detected: {label or 'none'} ({conf:.2f})"
-                count_text = f"Consecutive: {self.consecutive_count}/{self.max_count}"
-                trigger_text = "TRIGGERED" if triggered else "WAITING"
-                dispatch_text = "Dispatch: ON" if dispatch_results else "Dispatch: OFF"
-                quit_text = "Press 'q' or ESC to quit"
-                rule_text = f"Rule: conf>={self.min_confidence:.2f} and same label x{self.max_count}"
-                interval_text = f"Interval: {self.interval_ms}ms"
-                cycle_text = f"Cycle: {cycle}"
-                decision_text = f"Decision: {decision}"
-                pass_text = f"Last pass: {last_pass_text}"
-
-                cv2.putText(view, "[TEST MODE]", (12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                self._draw_detected_text(view, detected_text, 12, 52)
-                cv2.putText(view, count_text, (12, 78), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                cv2.putText(
-                    view,
-                    trigger_text,
-                    (12, 104),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 255, 0) if triggered else (0, 165, 255),
-                    2,
+                view = self._draw_camera_overlay(
+                    frame=frame,
+                    label=self._normalize_label(label),
+                    conf=conf,
+                    bbox=bbox,
+                    triggered=triggered,
+                    decision=decision,
+                    last_pass_text=last_pass_text,
+                    cycle=cycle,
                 )
-                cv2.putText(view, dispatch_text, (12, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
-                cv2.putText(view, rule_text, (12, 156), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
-                cv2.putText(view, interval_text, (12, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
-                cv2.putText(view, cycle_text, (12, 204), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
-                cv2.putText(view, decision_text, (12, 228), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
-                cv2.putText(view, pass_text, (12, 252), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
-                cv2.putText(view, quit_text, (12, 276), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
-
                 cv2.imshow(window_name, view)
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord("q"), 27):
                     break
         finally:
-            self._stop_predict_worker()
             cv2.destroyAllWindows()
             self.camera.release()
