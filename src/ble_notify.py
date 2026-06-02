@@ -5,16 +5,11 @@ import threading
 from datetime import datetime, timezone
 from typing import Optional
 
-try:
-    from bless import (
-        BlessServer,
-        GATTAttributePermissions,
-        GATTCharacteristicProperties,
-    )
-except ImportError:  # pragma: no cover - exercised on Raspberry Pi with bless installed.
-    BlessServer = None
-    GATTAttributePermissions = None
-    GATTCharacteristicProperties = None
+from bless import (
+    BlessServer,
+    GATTAttributePermissions,
+    GATTCharacteristicProperties,
+)
 
 
 DEVICE_NAME = "RaspberryPi_BLE"

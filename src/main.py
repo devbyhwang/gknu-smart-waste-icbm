@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -14,30 +15,21 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--conf-thres", type=float, default=0.1, help="YOLO confidence threshold")
     parser.add_argument("--imgsz", type=int, default=320, help="YOLO inference image size")
     parser.add_argument("--device", default="cpu", help="YOLO inference device (e.g. cpu, 0)")
-    parser.add_argument("--test-mode", action="store_true")
-    parser.add_argument(
-        "--test-dispatch",
-        action="store_true",
-        help="test-mode에서 실제 핸들러(OutputM) 액션까지 실행",
-    )
-    parser.add_argument("--window-name", default="EcoSort Test Monitor")
     return parser
 
 
 def main(argv=None):
     args = _build_parser().parse_args(argv)
 
-    try:
-        from .camera import CameraManager
-        from .inference import InferenceEngine, WasteClassifier
-        from .output_mgr import OutputM
-    except ImportError:
-        from camera import CameraManager
-        from inference import InferenceEngine, WasteClassifier
-        from output_mgr import OutputM
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
+
+    from camera import CameraManager
+    from inference import InferenceEngine, WasteClassifier
+    from output_mgr import OutputM
 
     # 모델 경로를 현재 실행 경로/프로젝트 루트/src 기준으로 해석
-    script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
     if not os.path.isabs(args.model_path) and not os.path.exists(args.model_path):
         candidates = [
@@ -50,12 +42,10 @@ def main(argv=None):
                 print(f"[main] model 경로: {args.model_path}")
                 break
 
-    handler = None
-    if not args.test_mode or args.test_dispatch:
-        handler = OutputM(enable_sensor_polling=False)
-        connect_bluetooth = getattr(handler.bluetooth, "connect", None)
-        if callable(connect_bluetooth):
-            connect_bluetooth()
+    handler = OutputM(enable_sensor_polling=False)
+    connect_bluetooth = getattr(handler.bluetooth, "connect", None)
+    if callable(connect_bluetooth):
+        connect_bluetooth()
 
     cam = CameraManager(
         index=args.camera_index,
@@ -83,13 +73,7 @@ def main(argv=None):
         handler=handler,
         img_dir=img_dir,
     )
-    if args.test_mode:
-        classifier.run_test_mode(
-            dispatch_results=args.test_dispatch,
-            window_name=args.window_name,
-        )
-    else:
-        classifier.run()
+    classifier.run()
 
 
 if __name__ == "__main__":

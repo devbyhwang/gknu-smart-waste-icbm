@@ -13,6 +13,7 @@ YOLOv8 + Raspberry Pi 기반 온디바이스(On-device) 폐기물 자동 분류 
 - Real-time AI Vision: YOLOv8 기반 고속 객체 탐지.
 - Precision Actuator Control: 분류 결과 기반 Servo 정밀 제어.
 - Local Display UI: Python 안내창에 분류 라벨, confidence, 쓰레기 적재량/가득 참 경고 표시.
+- Camera Monitor: 실행 중 카메라 화면에 현재 인식 결과와 판정 상태를 오버레이 표시.
 - BLE Notification: 분류함 가득 참 등 주요 이벤트를 Android 앱으로 notify 전송.
 
 ## System Architecture
@@ -47,7 +48,6 @@ MVP에서는 별도 웹/모바일 화면이 없어도 Raspberry Pi에 연결된 
   - 실행 중에는 4개 분류함 센서 적재량을 5초 주기로 재조회하여 화면에 반영합니다.
   - 적재량이 `SensorC.fillThreshold` 이상이면 "분류함이 가득 찼습니다!" 경고를 표시합니다.
   - 센서 값을 읽을 수 없으면 UI는 중단하지 않고 "적재량 확인 불가" 상태를 표시해야 합니다.
-  - 테스트 모드에서는 카메라 오버레이와 별도로 Python 안내창 동작을 확인할 수 있어야 합니다.
 
 ## Class Diagram
 
@@ -75,19 +75,8 @@ Raspberry Pi 설치 및 용량 문제 해결 가이드: [docs/rpi-setup.md](docs
 python -m src.main
 ```
 
-테스트 모드(카메라 화면 + YOLO 인식 오버레이):
-
-```bash
-python -m src.main --test-mode
-```
-
-테스트 모드에서 현재 핸들러 동작까지 함께 확인:
-
-```bash
-python -m src.main --test-mode --test-dispatch
-```
-
-Python UI 안내창 구현 후에는 일반 실행과 테스트 디스패치 실행 모두에서 분류 결과/적재량 화면 갱신을 확인합니다.
+실행 중에는 카메라 화면에 현재 인식 결과와 판정 상태가 표시되며, `q` 또는 ESC로 종료합니다.
+Python UI 안내창 구현 후에는 일반 실행에서 분류 결과/적재량 화면 갱신을 확인합니다.
 분류 이미지 에셋은 `img/` 폴더를 사용합니다.
 
 ## BLE Notify
