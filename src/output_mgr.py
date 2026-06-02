@@ -5,6 +5,7 @@ from models import ClassificationResult, HandleClassificationResult, WasteType
 
 
 BIN_SENSOR_CONFIG = {
+    # 각 분류함에 연결된 초음파 센서 GPIO 핀 번호.
     WasteType.CAN: {"trig": 23, "echo": 25},
     WasteType.PLASTIC: {"trig": 17, "echo": 27},
     WasteType.GLASS: {"trig": 22, "echo": 24},
@@ -17,6 +18,7 @@ BIN_FULL_ALERT = "분류함 비움 필요"
 
 class OutputM(HandleClassificationResult):
     def __init__(self, sensor_refresh_interval_sec: float = 5.0, enable_sensor_polling: bool = False):
+        # 분류 결과를 화면, 음성, 모터, 센서, BLE 장치로 전달하는 중앙 관리자.
         self.display = DisplayC()
         self.audio = AudioC()
         self.servo = ServoC()
@@ -39,6 +41,7 @@ class OutputM(HandleClassificationResult):
             self.start_sensor_polling()
 
     def _send_bluetooth_message(self, method_name: str, legacy_name: str, message: str):
+        # 새 메서드명과 예전 메서드명을 모두 허용해 하드웨어 코드 교체에 유연하게 대응한다.
         sender = getattr(self.bluetooth, method_name, None)
         if not callable(sender):
             sender = getattr(self.bluetooth, legacy_name, None)
@@ -52,6 +55,7 @@ class OutputM(HandleClassificationResult):
             return False
 
     def _send_bluetooth_event(self, event: str, message: str, method_name: str, legacy_name: str):
+        # sendEvent가 있으면 이벤트 타입까지 보내고, 없으면 기존 알림 API로 대체한다.
         sender = getattr(self.bluetooth, "sendEvent", None)
         if callable(sender):
             try:
@@ -69,6 +73,7 @@ class OutputM(HandleClassificationResult):
         return f"{names} 분류함 비움 필요"
 
     def _send_new_full_bin_alert(self, full_bins):
+        # 이미 알린 분류함은 반복 알림을 보내지 않는다.
         current_full_bins = set(full_bins or set())
         newly_full_bins = current_full_bins - self._alerted_full_bins
 
@@ -92,6 +97,7 @@ class OutputM(HandleClassificationResult):
         return sent
 
     def _read_sensor_fill_level(self, sensor):
+        # 센서 읽기 실패는 None으로 처리해서 전체 출력 흐름을 막지 않는다.
         reader = getattr(sensor, "checkFillLevel", None)
         if not callable(reader):
             return None
@@ -131,6 +137,7 @@ class OutputM(HandleClassificationResult):
             return 0.8
 
     def _full_bins_from_fill_levels(self, fill_levels):
+        # 채움 비율이 각 센서 임계값 이상이면 가득 찬 분류함으로 본다.
         full_bins = set()
         for waste_type, fill_level in (fill_levels or {}).items():
             if fill_level is not None and fill_level >= self._sensor_threshold(waste_type):
@@ -215,6 +222,7 @@ class OutputM(HandleClassificationResult):
 
     def refreshSensorStatus(self):
         with self._state_lock:
+            # 모터가 움직이는 중에는 센서값이 흔들릴 수 있어 마지막 값을 유지한다.
             if self._motor_active:
                 return dict(self._last_fill_levels), set(self._last_full_bins)
 
@@ -231,6 +239,7 @@ class OutputM(HandleClassificationResult):
             self._motor_active = bool(active)
 
     def _sensor_polling_loop(self):
+        # 옵션으로 켜는 백그라운드 센서 갱신 루프.
         while not self._polling_stop.is_set():
             try:
                 self.refreshSensorStatus()
@@ -262,6 +271,7 @@ class OutputM(HandleClassificationResult):
         self._polling_thread = None
 
     def _block_classification_for_full_bin(self, result, fill_levels, full_bins):
+        # 분류함이 가득 차면 모터를 움직이지 않고 경고만 보낸다.
         self._show_bin_full_warning(result, fill_levels, full_bins)
 
         play_effect = getattr(self.audio, "playEffect", None)
@@ -271,6 +281,7 @@ class OutputM(HandleClassificationResult):
         self._send_new_full_bin_alert(full_bins)
 
     def handleException(self):
+        # 출력 장치 중 하나가 실패해도 사용자에게 경고하고 루프는 계속 살린다.
         warning_text = "출력 장치 처리 중 예외가 발생했습니다."
         with self._state_lock:
             show_warning = getattr(self.display, "showWarning", None)
@@ -296,6 +307,7 @@ class OutputM(HandleClassificationResult):
         try:
             print(f"\n[OutputM] 결과 처리 시작: {result.label.value}")
             with self._state_lock:
+                # 모터 동작 전에 최신 센서 상태를 확인해 넘침을 방지한다.
                 fill_levels = self.collectFillLevels()
                 full_bins = self.collectFullBins(fill_levels)
                 if self._read_sensor_full_status(getattr(self, "sensor", None)):
@@ -337,6 +349,7 @@ class OutputM(HandleClassificationResult):
             process_item = getattr(self.servo, "process_item", None)
             self._set_motor_active(True)
             try:
+                # 실제 분류 동작 중에는 센서 polling이 끼어들지 않도록 표시한다.
                 if callable(process_item):
                     process_item(result.label.value)
                 else:

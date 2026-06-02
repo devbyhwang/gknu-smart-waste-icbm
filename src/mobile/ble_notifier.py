@@ -14,6 +14,7 @@ class BleNotification:
 
 class JsonPayloadBuilder:
     def build(self, event: str, message: str) -> bytes:
+        # 앱/테스트 코드가 같은 형식의 BLE 알림 payload를 쓰도록 한다.
         payload = {
             "event": event,
             "message": message,
@@ -44,6 +45,7 @@ class MockBleNotifier(BleNotifier):
         self.notifications: List[BleNotification] = []
 
     def notify(self, event: str, message: str) -> bool:
+        # 테스트에서는 실제 BLE 전송 대신 보낸 알림을 메모리에 기록한다.
         payload = self.payload_builder.build(event, message)
         self.notifications.append(
             BleNotification(event=event, message=message, payload=payload)
@@ -61,5 +63,6 @@ class PiBleNotifier(BleNotifier):
         self.payload_builder = payload_builder or JsonPayloadBuilder()
 
     def notify(self, event: str, message: str) -> bool:
+        # 실제 전송 계층에는 bytes payload만 넘긴다.
         payload = self.payload_builder.build(event, message)
         return self.transport.send(payload)

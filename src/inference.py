@@ -6,6 +6,7 @@ from ultralytics import YOLO
 from models import ClassificationResult, HandleClassificationResult, WasteType
 
 LABEL_ALIASES = {
+    # 모델 라벨과 실제 분류함 이름이 달라도 같은 값으로 처리한다.
     "can": "can",
     "plastic": "plastic",
     "glass": "glass",
@@ -36,10 +37,12 @@ class InferenceEngine:
         self.device = device
 
     def predict(self, frame: Any):
+        # 기존 코드 호환을 위해 라벨/신뢰도만 반환하는 얇은 래퍼.
         label, conf, _bbox = self.predict_detailed(frame)
         return label, conf
 
     def predict_detailed(self, frame: Any) -> Tuple[Optional[str], float, Optional[Tuple[int, int, int, int]]]:
+        # YOLO 결과 중 가장 신뢰도가 높은 박스 하나를 대표 결과로 사용한다.
         predict_kwargs = {
             "verbose": False,
             "conf": self.conf_thres,
@@ -92,6 +95,7 @@ class WasteClassifier:
         self._next_sensor_refresh_at = 0.0
 
     def _normalize_label(self, label: Optional[str]) -> Optional[str]:
+        # 빈 문자열과 None은 모두 미인식으로 보고, 별칭은 표준 라벨로 바꾼다.
         if label is None:
             return None
         normalized = str(label).strip()
@@ -100,6 +104,7 @@ class WasteClassifier:
         return LABEL_ALIASES.get(normalized.lower(), LABEL_ALIASES.get(normalized, normalized.lower()))
 
     def validate(self, label: Optional[str], conf: float) -> bool:
+        # 같은 라벨이 연속으로 max_count번 잡힐 때만 최종 분류로 인정한다.
         label = self._normalize_label(label)
         if not label or conf < self.min_confidence:
             self.consecutive_count = 0
@@ -114,6 +119,7 @@ class WasteClassifier:
         return self.consecutive_count == self.max_count
 
     def map_to_enum(self, label_str: Optional[str]) -> WasteType:
+        # 출력 모듈은 WasteType enum을 기준으로 동작하므로 여기서 변환한다.
         label_str = self._normalize_label(label_str)
         if not label_str:
             return WasteType.UNKNOWN
@@ -131,7 +137,7 @@ class WasteClassifier:
         if not self.handler:
             return
 
-        # Prefer diagram-aligned camelCase API first.
+        # 설계도 기준 camelCase를 먼저 쓰고, 예전 snake_case도 지원한다.
         camel = getattr(self.handler, "handleClassification", None)
         if callable(camel):
             camel(result)
@@ -145,6 +151,7 @@ class WasteClassifier:
         return max(0.0, self.interval_ms / 1000.0)
 
     def _refresh_sensor_snapshot_if_due(self, now: float):
+        # 카메라 추론 루프와 별개로 센서 상태는 낮은 빈도로 갱신한다.
         if now < self._next_sensor_refresh_at:
             return
 
@@ -173,6 +180,7 @@ class WasteClassifier:
     ):
         import cv2
 
+        # 디버깅하기 쉽게 현재 라벨, 연속 카운트, 판단 상태를 카메라 위에 표시한다.
         view = frame.copy()
         if bbox:
             x1, y1, x2, y2 = bbox
@@ -231,6 +239,7 @@ class WasteClassifier:
                 now = time.monotonic()
                 self._refresh_sensor_snapshot_if_due(now)
                 if now >= next_inference_at:
+                    # 지정된 간격마다만 추론해서 CPU 사용량과 화면 지연을 줄인다.
                     next_inference_at = now + self._inference_interval_seconds()
                     before_label = self.last_label
                     label, conf, bbox = self.engine.predict_detailed(frame)
@@ -249,6 +258,7 @@ class WasteClassifier:
                         decision = "COUNTING"
 
                     if is_valid:
+                        # 검증을 통과한 경우에만 화면/음성/모터 출력으로 넘긴다.
                         triggered = True
                         decision = "PASSED"
                         last_pass_text = time.strftime("%H:%M:%S")

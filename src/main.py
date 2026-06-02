@@ -4,6 +4,7 @@ import sys
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    # 실행할 때 바꿀 수 있는 카메라/모델 설정값을 한곳에서 받는다.
     parser = argparse.ArgumentParser(description="EcoSort-AIoT runner")
     parser.add_argument("--model-path", default="best.pt")
     parser.add_argument("--camera-index", type=int, default=0)
@@ -21,6 +22,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv=None):
     args = _build_parser().parse_args(argv)
 
+    # src 안에서 직접 실행해도 로컬 모듈 import가 되도록 경로를 보정한다.
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if script_dir not in sys.path:
         sys.path.insert(0, script_dir)
@@ -29,7 +31,7 @@ def main(argv=None):
     from inference import InferenceEngine, WasteClassifier
     from output_mgr import OutputM
 
-    # 모델 경로를 현재 실행 경로/프로젝트 루트/src 기준으로 해석
+    # 모델 경로는 실행 위치가 달라도 찾을 수 있게 프로젝트 루트와 src를 같이 확인한다.
     project_root = os.path.dirname(script_dir)
     if not os.path.isabs(args.model_path) and not os.path.exists(args.model_path):
         candidates = [
@@ -45,6 +47,7 @@ def main(argv=None):
     handler = OutputM(enable_sensor_polling=False)
     connect_bluetooth = getattr(handler.bluetooth, "connect", None)
     if callable(connect_bluetooth):
+        # BLE는 실패해도 화면/모터 동작은 계속 진행한다.
         connect_bluetooth()
 
     cam = CameraManager(
@@ -60,7 +63,7 @@ def main(argv=None):
         device=args.device,
     )
 
-    # img 폴더 경로도 스크립트 기준 절대 경로로
+    # 화면 표시용 이미지 폴더도 실행 위치와 상관없이 찾는다.
     img_dir = os.path.join(project_root, "img")
     if not os.path.exists(img_dir):
         img_dir = os.path.join(script_dir, "img")
