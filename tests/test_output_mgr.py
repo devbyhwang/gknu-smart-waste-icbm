@@ -566,6 +566,82 @@ def test_outputm_refresh_sensor_status_sends_ble_once_per_full_transition():
     ]
 
 
+def test_outputm_ignores_sensor_refresh_while_motor_is_sorting():
+    class SnapshotDisplay:
+        def __init__(self):
+            self.calls = []
+
+        def showClassificationStatus(self, label, confidence=None, fill_levels=None, full_bins=None):
+            self.calls.append(("classification", label, confidence, fill_levels, full_bins))
+
+        def showSensorSnapshot(self, fill_levels=None, full_bins=None, message=None):
+            self.calls.append(("snapshot", fill_levels, full_bins, message))
+
+    class FillSensor:
+        fillThreshold = 0.8
+
+        def __init__(self, value):
+            self.value = value
+
+        def checkFillLevel(self):
+            return self.value
+
+        def isFull(self):
+            return self.value >= self.fillThreshold
+
+    class EventBluetooth:
+        def __init__(self):
+            self.calls = []
+
+        def sendEvent(self, event, message):
+            self.calls.append((event, message))
+            return True
+
+    class RefreshingMotor:
+        def __init__(self, output, can_sensor):
+            self.output = output
+            self.can_sensor = can_sensor
+            self.calls = []
+
+        def process_item(self, received_value):
+            self.calls.append(("process_item", received_value))
+            self.can_sensor.value = 0.95
+            self.output.refreshSensorStatus()
+
+    can_sensor = FillSensor(0.10)
+    output = OutputM()
+    output.display = SnapshotDisplay()
+    output.audio = StubAudio()
+    output.bluetooth = EventBluetooth()
+    output.sensor = can_sensor
+    output.sensors = {
+        WasteType.CAN: can_sensor,
+        WasteType.PLASTIC: FillSensor(0.10),
+        WasteType.GLASS: FillSensor(0.10),
+        WasteType.PAPER: FillSensor(0.10),
+    }
+    output.servo = RefreshingMotor(output, can_sensor)
+
+    output.handleClassification(ClassificationResult(WasteType.CAN, 0.91))
+
+    assert output.servo.calls == [("process_item", "Can")]
+    assert output.display.calls == [
+        (
+            "classification",
+            WasteType.CAN,
+            0.91,
+            {
+                WasteType.CAN: 0.10,
+                WasteType.PLASTIC: 0.10,
+                WasteType.GLASS: 0.10,
+                WasteType.PAPER: 0.10,
+            },
+            set(),
+        ),
+    ]
+    assert output.bluetooth.calls == []
+
+
 def test_outputm_sensor_polling_start_stop_is_idempotent():
     class SnapshotDisplay:
         def showSensorSnapshot(self, fill_levels=None, full_bins=None, message=None):
