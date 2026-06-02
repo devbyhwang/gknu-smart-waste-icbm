@@ -18,6 +18,7 @@ CHAR_UUID = "2c5bba85-ac1c-46c2-a8d3-db389101a028"
 
 
 def build_payload(event: str, message: str) -> bytes:
+    # 스마트폰 앱이 바로 파싱할 수 있도록 이벤트, 메시지, UTC 시간을 JSON으로 묶는다.
     payload = {
         "event": event,
         "message": message,
@@ -27,6 +28,7 @@ def build_payload(event: str, message: str) -> bytes:
 
 
 async def maybe_await(value):
+    # bless 버전에 따라 동기/비동기 반환이 섞일 수 있어 둘 다 처리한다.
     if inspect.isawaitable(value):
         return await value
     return value
@@ -51,6 +53,7 @@ class PiBleNotifyTransport:
         self.server = server
 
     async def send(self, payload: bytes) -> bool:
+        # BLE notify는 클라이언트가 연결되고 characteristic을 구독해야 성공한다.
         if self.server is None:
             print("[BLE] server is None")
             return False
@@ -113,6 +116,7 @@ class EmbeddedBleServer:
         return self.thread is not None and self.thread.is_alive() and self.server is not None
 
     def start(self, timeout: float = 5.0) -> bool:
+        # BLE 이벤트 루프는 메인 분류 루프를 막지 않도록 별도 스레드에서 실행한다.
         if self.is_running:
             return True
 
@@ -132,6 +136,7 @@ class EmbeddedBleServer:
         return self.is_running
 
     def send_event(self, event: str, message: str) -> bool:
+        # 다른 스레드에서 BLE 루프에 안전하게 notify 작업을 등록한다.
         if not self.is_running or self.loop is None:
             return False
 
@@ -150,6 +155,7 @@ class EmbeddedBleServer:
             self.loop.call_soon_threadsafe(self.loop.stop)
 
     def _run_loop(self):
+        # 스레드 내부 전용 asyncio loop를 만들고 서버 생명주기를 관리한다.
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         try:
@@ -164,6 +170,7 @@ class EmbeddedBleServer:
             self.loop.close()
 
     async def _start_server(self):
+        # 하나의 서비스와 notify 가능한 characteristic으로 단순한 알림 채널을 만든다.
         if BlessServer is None:
             raise RuntimeError("bless 패키지가 설치되어 있지 않습니다.")
         if GATTCharacteristicProperties is None or GATTAttributePermissions is None:

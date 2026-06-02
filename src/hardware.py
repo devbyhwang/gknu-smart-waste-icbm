@@ -9,6 +9,7 @@ try:
     import cv2
     import numpy as np
 except Exception:
+    # 테스트 환경이나 헤드리스 장비에서는 화면 표시 없이도 동작하게 둔다.
     cv2 = None
     np = None
 
@@ -37,6 +38,7 @@ class SoundType(Enum):
 
 
 class DisplayC:
+    # 화면에는 항상 같은 순서로 분류함 카드를 보여준다.
     BIN_ORDER = ("Can", "Plastic", "Glass", "Paper")
     IMAGE_BY_BIN = {
         "Can": "금속.PNG",
@@ -65,6 +67,7 @@ class DisplayC:
         return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "img"))
 
     def _should_enable_window(self, enable_window):
+        # 명시 설정이 없으면 GUI를 띄울 수 있는 환경인지 자동으로 판단한다.
         if enable_window is not None:
             return bool(enable_window)
         if cv2 is None or os.environ.get("PYTEST_CURRENT_TEST"):
@@ -76,6 +79,7 @@ class DisplayC:
         return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
     def _normalize_bin_key(self, key):
+        # 한글/영문 입력을 화면에서 쓰는 분류함 키로 통일한다.
         if key is None:
             return None
         value = getattr(key, "value", key)
@@ -97,6 +101,7 @@ class DisplayC:
         return aliases.get(value.lower(), aliases.get(value, value if value in self.BIN_ORDER else None))
 
     def _normalize_fill_levels(self, fill_levels):
+        # 센서 값은 화면 게이지가 바로 쓸 수 있게 0.0~1.0 범위로 맞춘다.
         normalized = {label: None for label in self.BIN_ORDER}
         if not fill_levels:
             return normalized
@@ -114,6 +119,7 @@ class DisplayC:
         return normalized
 
     def _load_asset(self, label):
+        # 분류함 이미지는 반복 렌더링 때 다시 읽지 않도록 캐시한다.
         if cv2 is None:
             return None
         if label in self._asset_cache:
@@ -126,6 +132,7 @@ class DisplayC:
         return image
 
     def _paste_image(self, canvas, image, x, y, width, height):
+        # PNG 알파 채널이 있으면 배경과 자연스럽게 합성한다.
         if image is None:
             cv2.rectangle(canvas, (x, y), (x + width, y + height), (70, 70, 70), 2)
             cv2.putText(canvas, "NO IMAGE", (x + 28, y + height // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (170, 170, 170), 2)
@@ -141,6 +148,7 @@ class DisplayC:
             canvas[y : y + height, x : x + width] = resized
 
     def _draw_bin_gauge(self, canvas, x, y, width, height, fill, is_full):
+        # 초음파 센서가 계산한 채움 정도를 간단한 분류함 게이지로 표시한다.
         border = (60, 60, 60)
         fill_color = (45, 180, 80) if not is_full else (40, 40, 220)
         cv2.rectangle(canvas, (x, y), (x + width, y + height), border, 3)
@@ -196,6 +204,7 @@ class DisplayC:
             yield "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
     def _get_text_font(self, font_size, text=""):
+        # OpenCV 기본 글꼴은 한글이 깨져서, 가능하면 PIL 한글 폰트를 사용한다.
         try:
             from PIL import ImageFont
         except Exception:
@@ -229,6 +238,7 @@ class DisplayC:
         return None
 
     def _draw_text(self, canvas, text, x, y, font_size, color, thickness=2):
+        # 폰트를 못 찾으면 ASCII 대체 문자열로라도 화면 표시를 유지한다.
         font = self._get_text_font(font_size, text)
         if font is None:
             safe_text = text.encode("ascii", "replace").decode("ascii")
@@ -256,6 +266,7 @@ class DisplayC:
         if cv2 is None or np is None:
             return None
 
+        # 1280x720 한 화면에 현재 분류 결과와 각 분류함 상태를 같이 그린다.
         canvas = np.full((720, 1280, 3), (245, 245, 245), dtype=np.uint8)
         self._draw_text(canvas, self._classification_message(), 36, 72, 34, (35, 35, 35), 2)
 
@@ -297,6 +308,7 @@ class DisplayC:
             return
 
         try:
+            # 창 생성은 한 번만 하고 이후에는 프레임만 갱신한다.
             if not self._window_ready:
                 cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
                 cv2.resizeWindow(self.window_name, 1280, 720)
@@ -371,6 +383,7 @@ class DisplayC:
 class AudioC:
     def __init__(self):
         self.volume = 5
+        # 세부 라벨을 실제 안내 음성 파일의 큰 카테고리로 묶는다.
         self.category = {
             "페트병": "플라스틱",
             "플라스틱": "플라스틱",
@@ -410,6 +423,7 @@ class AudioC:
         self._play_file(path)
 
     def _play_file(self, path):
+        # 오디오 파일이 없는 개발 환경에서는 로그만 남기고 넘어간다.
         if not pygame or not path or not os.path.exists(path):
             print(f"[Audio] ⚠️ 오디오 파일을 찾을 수 없거나 모듈 오류: {path}")
             return
@@ -425,13 +439,15 @@ class AudioC:
     def play_tts(self, text):
         text = (text or "").strip()
         mapped = self.category.get(text, "일반")
-        
+
+        # 먼저 효과음을 재생하고, 잠깐 뒤에 분류 안내 음성을 재생한다.
         self.playEffect(SoundType.SUCCESS)
         sleep(0.5)
         self.play_voice(mapped)
 
 
 class MotorC:
+    # 하단/상단 서보 각도로 물건을 어느 칸으로 보낼지 정한다.
     ANGLE_MAP = {
         "Paper": (90, 135),
         "Unknown": (90, 135),
@@ -454,6 +470,7 @@ class MotorC:
 
         if AngularServo is not None and _GPIO_FACTORY is not None:
             try:
+                # 실제 라즈베리파이에서는 두 개의 서보를 각각 초기화한다.
                 self.bottom_servo = AngularServo(
                     self.bottom_pin,
                     min_angle=0,
@@ -483,6 +500,7 @@ class MotorC:
             sleep(self.move_delay)
 
     def _detach_servo(self, servo):
+        # 이동 후 PWM을 끊어 서보 떨림과 발열을 줄인다.
         if servo is None:
             return
         detach = getattr(servo, "detach", None)
@@ -515,6 +533,7 @@ class MotorC:
             self.top_servo.angle = angle
 
     def _category_value(self, received_value):
+        # enum, 문자열, 알 수 없는 값 모두 안전하게 분류 키로 바꾼다.
         value = getattr(received_value, "value", received_value)
         if value in self.ANGLE_MAP:
             return value
@@ -527,6 +546,7 @@ class MotorC:
         self._detach_motors()
 
     def process_item(self, received_value):
+        # 하단 서보로 방향을 잡고, 상단 서보로 투입 동작을 수행한다.
         category = self._category_value(received_value)
         bottom_angle, top_angle = self.ANGLE_MAP.get(category, self.ANGLE_MAP["Unknown"])
 
@@ -574,6 +594,7 @@ class SensorC:
                 self.sensor = None
 
     def checkFillLevel(self):
+        # 초음파 거리로 빈 공간을 계산해 채움 비율로 변환한다.
         if self.sensor is not None:
             current_dist = self.sensor.distance * 100
             filled_height = self.empty_bin_dist - current_dist
@@ -608,6 +629,7 @@ class BluetoothC:
             self.server = EmbeddedBleServer()
 
     def connect(self):
+        # 내장 BLE 서버가 있으면 서버를 띄우고, 아니면 테스트용 notifier로 연결 처리한다.
         if self.server is not None:
             self.isConnected = self.server.start()
             if self.isConnected:
@@ -620,6 +642,7 @@ class BluetoothC:
         return self.isConnected
 
     def sendEvent(self, event, message):
+        # 전송 직전에 연결을 확인해 앱이 늦게 붙어도 알림을 보낼 수 있게 한다.
         if not self.isConnected:
             if not self.connect():
                 return False
