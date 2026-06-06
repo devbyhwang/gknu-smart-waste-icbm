@@ -44,7 +44,7 @@ def main(argv=None):
                 print(f"[main] model 경로: {args.model_path}")
                 break
 
-    handler = OutputM(enable_sensor_polling=False)
+    handler = OutputM()
     connect_bluetooth = getattr(handler.bluetooth, "connect", None)
     if callable(connect_bluetooth):
         # BLE는 실패해도 화면/모터 동작은 계속 진행한다.

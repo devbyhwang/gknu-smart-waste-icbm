@@ -29,16 +29,6 @@ class BleNotifier(ABC):
         raise NotImplementedError
 
 
-class PiBleNotifyTransport:
-    """
-    Production hook for Raspberry Pi BLE notify transport.
-    Actual BlueZ integration is intentionally deferred.
-    """
-
-    def send(self, _payload: bytes) -> bool:
-        return False
-
-
 class MockBleNotifier(BleNotifier):
     def __init__(self, payload_builder: JsonPayloadBuilder | None = None):
         self.payload_builder = payload_builder or JsonPayloadBuilder()
@@ -51,18 +41,3 @@ class MockBleNotifier(BleNotifier):
             BleNotification(event=event, message=message, payload=payload)
         )
         return True
-
-
-class PiBleNotifier(BleNotifier):
-    def __init__(
-        self,
-        transport: PiBleNotifyTransport | None = None,
-        payload_builder: JsonPayloadBuilder | None = None,
-    ):
-        self.transport = transport or PiBleNotifyTransport()
-        self.payload_builder = payload_builder or JsonPayloadBuilder()
-
-    def notify(self, event: str, message: str) -> bool:
-        # 실제 전송 계층에는 bytes payload만 넘긴다.
-        payload = self.payload_builder.build(event, message)
-        return self.transport.send(payload)
