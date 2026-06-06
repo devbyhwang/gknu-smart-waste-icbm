@@ -1,7 +1,6 @@
 from enum import Enum
 import glob
 import os
-import subprocess
 import sys
 from time import sleep
 
@@ -331,15 +330,6 @@ class DisplayC:
         print(f"[Display] 분류 결과 '{self.selected_label}' / confidence={confidence} / fill={self.fill_levels}")
         self.refreshScreen()
 
-    def showCategory(self, icon, text, confidence=None, fill_levels=None, full_bins=None):
-        if confidence is not None or fill_levels is not None or full_bins is not None:
-            return self.showClassificationStatus(text or icon, confidence, fill_levels, full_bins)
-
-        self.selected_label = self._normalize_bin_key(text or icon) or text or icon
-        self.message = "분류 결과 표시"
-        print(f"[Display] 화면에 {icon} 아이콘 / 텍스트 '{text}' 표시")
-        self.refreshScreen()
-
     def showWarning(self, message):
         self.message = message
         print(f"[Display] 경고: {message}")
@@ -372,12 +362,6 @@ class DisplayC:
     def refreshScreen(self):
         print("[Display] 화면 갱신")
         self._show_frame()
-
-    def show_category(self, text):
-        self.showCategory(text, text)
-
-    def show_warning(self, msg):
-        self.showWarning(msg)
 
 
 class AudioC:
@@ -563,19 +547,6 @@ class MotorC:
         self.reset_motors()
         print("[Motor] 분류 완료")
 
-    def resetPosition(self):
-        self.reset_motors()
-
-    def rotateTo(self, angle):
-        self._set_bottom_angle(angle)
-        print(f"[Motor] {angle}도로 회전하여 분류")
-
-    def sendPWM(self, pulseWidth):
-        print(f"[Motor] PWM 전송: pin={self.pinNumber}, pulse={pulseWidth}")
-
-    def rotate_to(self, angle):
-        self.rotateTo(angle)
-
 
 class SensorC:
     def __init__(self, fillThreshold=0.8, trig=23, echo=25, height_dist=720):
@@ -615,9 +586,6 @@ class SensorC:
             return (current_dist / self.empty_bin_dist) * 100
         return 0
 
-    def is_full(self):
-        return self.isFull()
-
 
 class BluetoothC:
     def __init__(self, server=None, notifier: BleNotifier | None = None):
@@ -656,31 +624,3 @@ class BluetoothC:
             return ok
 
         return self.notifier.notify(event, message)
-
-    def sendAlert(self, message):
-        return self.sendEvent("BIN_FULL", message)
-
-    def sendExceptionAlert(self, message):
-        return self.sendEvent("OUTPUT_EXCEPTION", message)
-
-    def send_alert(self, msg):
-        return self.sendAlert(msg)
-
-    def send_exception_alert(self, msg):
-        return self.sendExceptionAlert(msg)
-
-
-class MobileApp:
-    def __init__(self):
-        self.isBluetoothOn = True
-
-    def receiveAlert(self, msg):
-        print(f"[MobileApp] 알림 수신: {msg}")
-        self.showNotification()
-
-    def showNotification(self):
-        print("[MobileApp] 알림 배너 표시")
-
-
-# Diagram compatibility alias.
-ServoC = MotorC

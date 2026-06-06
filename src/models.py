@@ -24,7 +24,3 @@ class HandleClassificationResult(ABC):
     @abstractmethod
     def handleClassification(self, result: ClassificationResult):
         raise NotImplementedError
-
-    def handle_classification(self, result: ClassificationResult):
-        # Backward-compatible alias for snake_case callers.
-        return self.handleClassification(result)

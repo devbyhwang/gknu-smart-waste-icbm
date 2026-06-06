@@ -36,12 +36,7 @@ class InferenceEngine:
         self.imgsz = imgsz
         self.device = device
 
-    def predict(self, frame: Any):
-        # 기존 코드 호환을 위해 라벨/신뢰도만 반환하는 얇은 래퍼.
-        label, conf, _bbox = self.predict_detailed(frame)
-        return label, conf
-
-    def predict_detailed(self, frame: Any) -> Tuple[Optional[str], float, Optional[Tuple[int, int, int, int]]]:
+    def predict(self, frame: Any) -> Tuple[Optional[str], float, Optional[Tuple[int, int, int, int]]]:
         # YOLO 결과 중 가장 신뢰도가 높은 박스 하나를 대표 결과로 사용한다.
         predict_kwargs = {
             "verbose": False,
@@ -137,15 +132,7 @@ class WasteClassifier:
         if not self.handler:
             return
 
-        # 설계도 기준 camelCase를 먼저 쓰고, 예전 snake_case도 지원한다.
-        camel = getattr(self.handler, "handleClassification", None)
-        if callable(camel):
-            camel(result)
-            return
-
-        legacy = getattr(self.handler, "handle_classification", None)
-        if callable(legacy):
-            legacy(result)
+        self.handler.handleClassification(result)
 
     def _inference_interval_seconds(self) -> float:
         return max(0.0, self.interval_ms / 1000.0)
@@ -242,7 +229,7 @@ class WasteClassifier:
                     # 지정된 간격마다만 추론해서 CPU 사용량과 화면 지연을 줄인다.
                     next_inference_at = now + self._inference_interval_seconds()
                     before_label = self.last_label
-                    label, conf, bbox = self.engine.predict_detailed(frame)
+                    label, conf, bbox = self.engine.predict(frame)
                     normalized_label = self._normalize_label(label)
                     is_valid = self.validate(normalized_label, conf)
                     triggered = False
