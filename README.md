@@ -177,6 +177,10 @@ BLE payload는 JSON 형식입니다.
 코드 구조와 주요 실행 흐름은 다음 문서에 정리되어 있습니다.
 
 - [Docs/UML/diagrams.md](Docs/UML/diagrams.md)
+- [Class Diagram](Docs/UML/images/class-diagram.png)
+- [Code Flow Sequence Diagram](Docs/UML/images/code-flow-sequence.png)
+- [Full Bin Exception Sequence Diagram](Docs/UML/images/full-bin-exception-sequence.png)
+- [User Sequence Diagram](Docs/UML/images/user-sequence.png)
 
 ## 개발 메모
 
