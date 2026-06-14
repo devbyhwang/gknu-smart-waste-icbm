@@ -4,6 +4,10 @@ GKNU 국립경국대학교 컴퓨터공학과 ICBM 기반 캡스톤디자인 4�
 
 카메라 영상과 YOLO 객체 탐지를 이용해 쓰레기 종류를 인식하고, 초음파 센서로 분류함의 적재 상태를 확인한 뒤 화면, 음성, 서보모터, BLE 알림으로 분류 결과를 출력하는 스마트 분리수거 시스템입니다.
 
+## 연관 저장소
+
+- 안드로이드 알람 BLE 애플리케이션: [ANU_EcoSortBleClient](https://github.com/devbyhwang/ANU_EcoSortBleClient.git)
+
 ## 주요 기능
 
 - Raspberry Pi 카메라 스트림 수집
